@@ -32,3 +32,8 @@ In the provided Sponza model for the FFX CACAO sample, at the bottom of some cur
 there is an issue with incorrect normals
 in the mesh causing ambient occlusion to be incorrectly calculated as light in places where occlusion
 should be dark. This is a known issue with the mesh, and not an issue with FFX CACAO itself.
+
+# Notices
+
+CACAO is a modification of the Adaptive Screen Space Ambient Occlusion (ASSAO) algorithm that was developed by Intel.
+The original implementation can be found [here](https://github.com/GameTechDev/ASSAO).
