@@ -1117,6 +1117,8 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
 		context = useDownsampledSsao ? m_pCacaoContextDownsampledNonExpanded : m_pCacaoContextNativeNonExpanded;
 #endif
 
+      pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_cacaoDepthBuffer.GetResource(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
 		ffxCacaoD3D12UpdateSettings(context, cacaoSettings);
 		ffxCacaoD3D12Draw(context, pCmdLst1, &proj, &normalsWorldToView);
 
