@@ -19,6 +19,7 @@ To build this sample, the following tools are required:
 - [CMake 3.4](https://cmake.org/download/)
 - [Visual Studio 2017](https://visualstudio.microsoft.com/downloads/)
 - [Windows 10 SDK 10.0.17763.0](https://developer.microsoft.com/en-us/windows/downloads/windows-10-sdk)
+- [Vulkan SDK 1.2.141.2](https://www.lunarg.com/vulkan-sdk/)
 
 Then follow these steps:
 
@@ -33,4 +34,4 @@ Then follow these steps:
     > GenerateSolutions.bat
     ```
 
-3) Open the solution in the DX12 directory, compile and run.
+3) Open the solution in the DX12/VK directory, compile and run.

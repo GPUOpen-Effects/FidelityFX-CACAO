@@ -10,18 +10,12 @@
 #define DEPTH 1
 #endif
 
-SamplerState g_LinearSampler : register(s0);
-
-Texture2D<float>    g_SSAO : register(t0);
-RWTexture2D<float4> g_HDR  : register(u0);
+RWTexture2D<float> g_ClearTex : register(u0);
 
 [numthreads(WIDTH, HEIGHT, DEPTH)]
-void CSApplyCACAO(uint2 tid : SV_DispatchThreadID)
+void CSClear(uint2 tid : SV_DispatchThreadID)
 {
-	float4 color = g_HDR[tid];
-	float ssao = g_SSAO[tid];
-	color.xyz *= ssao;
-	g_HDR[tid] = color;
+	g_ClearTex[tid] = 1.0f;
 }
 
 // pass through

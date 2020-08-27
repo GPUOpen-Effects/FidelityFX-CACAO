@@ -21,8 +21,6 @@
 
 #include "SampleRenderer.h"
 
-#define USE_SHADOWMASK false
-
 //--------------------------------------------------------------------------------------
 //
 // OnCreate
@@ -68,16 +66,7 @@ void SampleRenderer::OnCreate(Device* pDevice, SwapChain *pSwapChain)
     m_resourceViewHeaps.AllocDSVDescriptor(1, &m_depthBufferDSV);
     m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_depthBufferSRV);
 
-#if USE_SHADOWMASK
-    m_shadowResolve.OnCreate(m_pDevice, &m_resourceViewHeaps, &m_ConstantBufferRing);
-
-    // Create the shadow mask descriptors
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_ShadowMaskUAV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_ShadowMaskSRV);
-#endif
-
     // Create a Shadowmap atlas to hold 4 cascades/spotlights
-    // m_ShadowMap.InitDepthStencil(pDevice, "m_pShadowMap", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, 2 * 1024, 2 * 1024, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
 	m_ShadowMap.InitDepthStencil(pDevice, "m_pShadowMap", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, 2 * 1024, 2 * 1024, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
 	m_resourceViewHeaps.AllocDSVDescriptor(1, &m_ShadowMapDSV);
     m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_ShadowMapSRV);
@@ -90,35 +79,20 @@ void SampleRenderer::OnCreate(Device* pDevice, SwapChain *pSwapChain)
     m_wireframeBox.OnCreate(pDevice, &m_resourceViewHeaps, &m_ConstantBufferRing, &m_VidMemBufferPool);
     m_downSample.OnCreate(pDevice, &m_resourceViewHeaps, &m_ConstantBufferRing, &m_VidMemBufferPool, DXGI_FORMAT_R16G16B16A16_FLOAT);
     m_bloom.OnCreate(pDevice, &m_resourceViewHeaps, &m_ConstantBufferRing, &m_VidMemBufferPool, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    // m_sharpen.OnCreate(pDevice, &m_resourceViewHeaps, &m_VidMemBufferPool, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    // m_taa.OnCreate(pDevice, &m_resourceViewHeaps);
     m_motionBlur.OnCreate(pDevice, &m_resourceViewHeaps, "motionBlur.hlsl", "main", 1, 2, 8, 8, 1);
 
-#if USE_CACAO
-#define APPLY_CACAO_WIDTH  8
-#define APPLY_CACAO_HEIGHT 8
 	size_t cacaoSize = ffxCacaoD3D12GetContextSize();
 	FfxCacaoStatus status;
 
-#if USE_EXPANDED_DEPTH_BUFFER
-	m_pCacaoContextNativeExpanded = (FfxCacaoD3D12Context*)malloc(cacaoSize);
-	status = ffxCacaoD3D12InitContext(m_pCacaoContextNativeExpanded, pDevice->GetDevice());
-	assert(status == FFX_CACAO_STATUS_OK);
-
-	m_pCacaoContextDownsampledExpanded = (FfxCacaoD3D12Context*)malloc(cacaoSize);
-	status = ffxCacaoD3D12InitContext(m_pCacaoContextDownsampledExpanded, pDevice->GetDevice());
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	m_pFfxCacaoContextNative = (FfxCacaoD3D12Context*)malloc(cacaoSize);
+	status = ffxCacaoD3D12InitContext(m_pFfxCacaoContextNative, pDevice->GetDevice());
 	assert(status == FFX_CACAO_STATUS_OK);
 #endif
 
-	m_pCacaoContextNativeNonExpanded = (FfxCacaoD3D12Context*)malloc(cacaoSize);
-	status = ffxCacaoD3D12InitContext(m_pCacaoContextNativeNonExpanded, pDevice->GetDevice());
+	m_pFfxCacaoContextDownsampled = (FfxCacaoD3D12Context*)malloc(cacaoSize);
+	status = ffxCacaoD3D12InitContext(m_pFfxCacaoContextDownsampled, pDevice->GetDevice());
 	assert(status == FFX_CACAO_STATUS_OK);
-
-	m_pCacaoContextDownsampledNonExpanded = (FfxCacaoD3D12Context*)malloc(cacaoSize);
-	status = ffxCacaoD3D12InitContext(m_pCacaoContextDownsampledNonExpanded, pDevice->GetDevice());
-	assert(status == FFX_CACAO_STATUS_OK);
-
-	m_applyCACAO.OnCreate(pDevice, &m_resourceViewHeaps, "Apply_CACAO.hlsl", "CSApplyCACAO", 1, 1, APPLY_CACAO_WIDTH, APPLY_CACAO_HEIGHT, 1);
 
 	D3D12_STATIC_SAMPLER_DESC SamplerDesc = {};
 	SamplerDesc.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
@@ -135,11 +109,9 @@ void SampleRenderer::OnCreate(Device* pDevice, SwapChain *pSwapChain)
 	SamplerDesc.RegisterSpace = 0;
 	SamplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-
 	m_applyDirect.OnCreate(pDevice, "Apply_CACAO.hlsl", &m_resourceViewHeaps, &m_VidMemBufferPool, 1, 1, &SamplerDesc, pSwapChain->GetFormat()); //  DXGI_FORMAT_R16G16B16A16_FLOAT);
-#endif
-
-    // Create tonemapping pass
+																																				 // Create tonemapping pass
+	m_cacaoUavClear.OnCreate(pDevice, &m_resourceViewHeaps, "Apply_CACAO.hlsl", "CSClear", 1, 0, 8, 8, 1);
     m_toneMapping.OnCreate(pDevice, &m_resourceViewHeaps, &m_ConstantBufferRing, &m_VidMemBufferPool, pSwapChain->GetFormat());
 
     // Initialize UI rendering resources
@@ -150,38 +122,16 @@ void SampleRenderer::OnCreate(Device* pDevice, SwapChain *pSwapChain)
 
     m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_HDRSRV);
 
-    // motion vectors views
-    m_resourceViewHeaps.AllocDSVDescriptor(1, &m_MotionVectorsDepthMapDSV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_MotionVectorsDepthMapSRV);
-
-    m_resourceViewHeaps.AllocRTVDescriptor(1, &m_MotionVectorsRTV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_MotionVectorsSRV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(2, &m_MotionVectorsInputsSRV);
-    m_resourceViewHeaps.AllocRTVDescriptor(1, &m_NormalBufferRTV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_NormalBufferSRV);
-
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_MotionBlurOutputSRV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_MotionBlurOutputUAV);
-
-    // TAA views
-    /* m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_TAABufferSRV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_TAABufferUAV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(4, &m_TAAInputsSRV);
-
-    m_resourceViewHeaps.AllocRTVDescriptor(1, &m_HistoryBufferRTV); */
-    m_resourceViewHeaps.AllocDSVDescriptor(1, &m_MotionVectorsDepthMapDSV);
-    m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_MotionVectorsDepthMapSRV);
-
-#if USE_CACAO
-	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_applyCACAOInputs);
-	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_applyCACAOOutputs);
+	// CACAO stuff
 	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_applyDirectInput);
+	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_FfxCacaoOutputSRV);
+	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_FfxCacaoOutputUAV);
 
-	m_resourceViewHeaps.AllocDSVDescriptor(1, &m_cacaoDepthBufferDSV);
-#if USE_EXPANDED_DEPTH_BUFFER
-	m_resourceViewHeaps.AllocDSVDescriptor(1, &m_expandedDepthBufferDSV);
-#endif
-#endif
+	// Deferred non msaa pass
+	m_resourceViewHeaps.AllocDSVDescriptor(1, &m_depthBufferNonMsaaDSV);
+	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_depthBufferNonMsaaSRV);
+	m_resourceViewHeaps.AllocRTVDescriptor(1, &m_normalBufferNonMsaaRTV);
+	m_resourceViewHeaps.AllocCBV_SRV_UAVDescriptor(1, &m_normalBufferNonMsaaSRV);
 
     // Make sure upload heap has finished uploading before continuing
 #if (USE_VID_MEM==true)
@@ -204,22 +154,16 @@ void SampleRenderer::OnDestroy()
     m_sharpen.OnDestroy();
     m_bloom.OnDestroy();
 
-#if USE_CACAO
-#if USE_EXPANDED_DEPTH_BUFFER
-	ffxCacaoD3D12DestroyContext(m_pCacaoContextNativeExpanded);
-	free(m_pCacaoContextNativeExpanded);
-	ffxCacaoD3D12DestroyContext(m_pCacaoContextDownsampledExpanded);
-	free(m_pCacaoContextDownsampledExpanded);
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	ffxCacaoD3D12DestroyContext(m_pFfxCacaoContextNative);
+	free(m_pFfxCacaoContextNative);
 #endif
-
-	ffxCacaoD3D12DestroyContext(m_pCacaoContextNativeNonExpanded);
-	free(m_pCacaoContextNativeNonExpanded);
-	ffxCacaoD3D12DestroyContext(m_pCacaoContextDownsampledNonExpanded);
-	free(m_pCacaoContextDownsampledNonExpanded);
-	m_applyCACAO.OnDestroy();
+	ffxCacaoD3D12DestroyContext(m_pFfxCacaoContextDownsampled);
+	free(m_pFfxCacaoContextDownsampled);
+	m_cacaoUavClear.OnDestroy();
 	m_applyDirect.OnDestroy();
-#endif
-    m_downSample.OnDestroy();
+
+	m_downSample.OnDestroy();
     m_wireframeBox.OnDestroy();
     m_wireframe.OnDestroy();
     m_skyDomeProc.OnDestroy();
@@ -257,18 +201,17 @@ void SampleRenderer::OnCreateWindowSizeDependentResources(SwapChain *pSwapChain,
 
     // Create depth buffer
     //
-	// m_depthBuffer.InitDepthStencil(m_pDevice, "depthbuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, Width, Height, 1, 1, 4, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
 	m_depthBuffer.InitDepthStencil(m_pDevice, "depthbuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, Width, Height, 1, 1, 4, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
 	m_depthBuffer.CreateDSV(0, &m_depthBufferDSV);
     m_depthBuffer.CreateSRV(0, &m_depthBufferSRV);
 
-#if USE_SHADOWMASK
-    // Create shadow mask
-    //
-    m_ShadowMask.Init(m_pDevice, "shadowbuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL);
-    m_ShadowMask.CreateUAV(0, &m_ShadowMaskUAV);
-    m_ShadowMask.CreateSRV(0, &m_ShadowMaskSRV);
-#endif
+	m_depthBufferNonMsaa.InitDepthStencil(m_pDevice, "depthBufferNonMSAA", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
+	m_depthBufferNonMsaa.CreateDSV(0, &m_depthBufferNonMsaaDSV);
+	m_depthBufferNonMsaa.CreateSRV(0, &m_depthBufferNonMsaaSRV);
+
+	m_normalBufferNonMsaa.InitRenderTarget(m_pDevice, "m_normalBufferNonMsaa", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET));
+	m_normalBufferNonMsaa.CreateRTV(0, &m_normalBufferNonMsaaRTV);
+	m_normalBufferNonMsaa.CreateSRV(0, &m_normalBufferNonMsaaSRV);
 
     // Create Texture + RTV with x4 MSAA
     //
@@ -283,92 +226,22 @@ void SampleRenderer::OnCreateWindowSizeDependentResources(SwapChain *pSwapChain,
     m_HDR.CreateSRV(0, &m_HDRSRV);
     m_HDR.CreateRTV(0, &m_HDRRTV);
 
+	m_FfxCacaoOutput.Init(m_pDevice, "cacaoOutput", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8_UNORM, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS), D3D12_RESOURCE_STATE_GENERIC_READ, NULL);
+	m_FfxCacaoOutput.CreateSRV(0, &m_FfxCacaoOutputSRV);
+	m_FfxCacaoOutput.CreateUAV(0, &m_FfxCacaoOutputUAV);
 
-    // TAA output
-    //
-    /* CD3DX12_RESOURCE_DESC TAADesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16B16A16_FLOAT, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-    m_TAABuffer.Init(m_pDevice, "m_TAABuffer", &TAADesc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL);
-    m_TAABuffer.CreateSRV(0, &m_TAABufferSRV);
-    m_TAABuffer.CreateUAV(0, &m_TAABufferUAV);
-
-    CD3DX12_RESOURCE_DESC HistoryDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16B16A16_FLOAT, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
-    m_HistoryBuffer.InitRenderTarget(m_pDevice, "m_HistoryBuffer", &HistoryDesc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    m_HistoryBuffer.CreateRTV(0, &m_HistoryBufferRTV);
-
-    m_HDR.CreateSRV(0, &m_TAAInputsSRV);
-    m_MotionVectorsDepthMap.CreateSRV(1, &m_TAAInputsSRV);
-    m_HistoryBuffer.CreateSRV(2, &m_TAAInputsSRV);
-    m_MotionVectors.CreateSRV(3, &m_TAAInputsSRV); */
-
-    // depth and normal
-    // m_depthBuffer.CreateSRV(0, &m_DepthAndNormalInputsSRV);
-    // m_NormalBuffer.CreateSRV(1, &m_DepthAndNormalInputsSRV);
-
-#if USE_CACAO
-	m_HalfWidth = (Width + 1) / 2;
-	m_HalfHeight = (Height + 1) / 2;
-
-	// motion vector resources
-	//
-	m_MotionVectorsDepthMap.InitDepthStencil(m_pDevice, "m_MotionVectorDepthMap", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
-	m_MotionVectorsDepthMap.CreateDSV(0, &m_MotionVectorsDepthMapDSV);
-	m_MotionVectorsDepthMap.CreateSRV(0, &m_MotionVectorsDepthMapSRV);
-
-	m_NormalBuffer.InitRenderTarget(m_pDevice, "m_NormalBuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET));
-	m_NormalBuffer.CreateRTV(0, &m_NormalBufferRTV);
-	m_MotionVectors.InitRenderTarget(m_pDevice, "m_MotionVector", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16_FLOAT, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET));
-	m_MotionVectors.CreateRTV(0, &m_MotionVectorsRTV);
-
-	m_HDR.CreateSRV(0, &m_MotionVectorsInputsSRV);
-	m_MotionVectors.CreateSRV(1, &m_MotionVectorsInputsSRV);
-
-	m_MotionVectors.CreateSRV(0, &m_MotionVectorsSRV);
-	m_NormalBuffer.CreateSRV(0, &m_NormalBufferSRV);
-
-	// motion blur output
-	//
-	CD3DX12_RESOURCE_DESC MBDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R16G16B16A16_FLOAT, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-	m_MotionBlurOutput.Init(m_pDevice, "m_MotionBlurOutput", &MBDesc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL);
-	m_MotionBlurOutput.CreateSRV(0, &m_MotionBlurOutputSRV);
-	m_MotionBlurOutput.CreateUAV(0, &m_MotionBlurOutputUAV);
-
-
-	m_cacaoDepthBuffer.InitDepthStencil(m_pDevice, "cacaoDepthBuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
-	m_cacaoDepthBuffer.CreateDSV(0, &m_cacaoDepthBufferDSV);
-
-	m_CacaoOutput.Init(m_pDevice, "cacaoOutput", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8_UNORM, Width, Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, NULL);
-
-#if USE_EXPANDED_DEPTH_BUFFER
-	m_expandedDepthWidth = Width + (Width / 5);
-	m_expandedDepthHeight = Height + (Height / 5);
-	uint32_t bufferOffsetX = (m_expandedDepthWidth - Width) / 2;
-	uint32_t bufferOffsetY = (m_expandedDepthHeight - Height) / 2;
-	// m_expandedDepthBuffer.InitDepthStencil(m_pDevice, "m_expandedDepthBuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, m_expandedDepthWidth, m_expandedDepthHeight, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
-	m_expandedDepthBuffer.InitDepthStencil(m_pDevice, "m_expandedDepthBuffer", &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, m_expandedDepthWidth, m_expandedDepthHeight, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL));
-	m_expandedDepthBuffer.CreateDSV(0, &m_expandedDepthBufferDSV);
-
-	m_expandedDepthCamera.SetFov(0.922579714, m_expandedDepthWidth, m_expandedDepthHeight, 0.1f, 1000.0f);
-#endif
-	
+	if (m_gltfPBR)
+	{
+		m_gltfPBR->OnUpdateWindowSizeDependentResources(&m_FfxCacaoOutput);
+	}
 
 	FfxCacaoD3D12ScreenSizeInfo cacaoScreenSizeDependentInfo;
 
 	cacaoScreenSizeDependentInfo.width = Width;
 	cacaoScreenSizeDependentInfo.height = Height;
-#if USE_EXPANDED_DEPTH_BUFFER
-	cacaoScreenSizeDependentInfo.depthBufferWidth = m_expandedDepthWidth;
-	cacaoScreenSizeDependentInfo.depthBufferHeight = m_expandedDepthHeight;
-	cacaoScreenSizeDependentInfo.depthBufferXOffset = bufferOffsetX;
-	cacaoScreenSizeDependentInfo.depthBufferYOffset = bufferOffsetY;
 
-	cacaoScreenSizeDependentInfo.depthBufferResource = m_expandedDepthBuffer.GetResource();
-	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
-	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS;
-	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-#endif
-
-	cacaoScreenSizeDependentInfo.normalBufferResource = m_NormalBuffer.GetResource();
-	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.Format = m_NormalBuffer.GetFormat();
+	cacaoScreenSizeDependentInfo.normalBufferResource = m_normalBufferNonMsaa.GetResource();
+	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.Format = m_normalBufferNonMsaa.GetFormat();
 	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.Texture2D.MostDetailedMip = 0;
@@ -376,41 +249,33 @@ void SampleRenderer::OnCreateWindowSizeDependentResources(SwapChain *pSwapChain,
 	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.Texture2D.PlaneSlice = 0;
 	cacaoScreenSizeDependentInfo.normalBufferSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-	// cacaoScreenSizeDependentInfo.outputBufferWidth = Width;
-	// cacaoScreenSizeDependentInfo.outputBufferHeight = Height;
-	cacaoScreenSizeDependentInfo.outputResource = m_CacaoOutput.GetResource();
-	cacaoScreenSizeDependentInfo.outputUavDesc.Format = m_CacaoOutput.GetFormat();
+	cacaoScreenSizeDependentInfo.outputResource = m_FfxCacaoOutput.GetResource();
+	cacaoScreenSizeDependentInfo.outputUavDesc.Format = m_FfxCacaoOutput.GetFormat();
 	cacaoScreenSizeDependentInfo.outputUavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 	cacaoScreenSizeDependentInfo.outputUavDesc.Texture2D.MipSlice = 0;
 	cacaoScreenSizeDependentInfo.outputUavDesc.Texture2D.PlaneSlice = 0;
 
-#if USE_EXPANDED_DEPTH_BUFFER
-	ffxCacaoD3D12InitScreenSizeDependentResources(m_pCacaoContextNativeExpanded, &cacaoScreenSizeDependentInfo, FFX_CACAO_FALSE);
-	ffxCacaoD3D12InitScreenSizeDependentResources(m_pCacaoContextDownsampledExpanded, &cacaoScreenSizeDependentInfo, FFX_CACAO_TRUE);
+	cacaoScreenSizeDependentInfo.depthBufferResource = m_depthBufferNonMsaa.GetResource();
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Texture2D.MipLevels = 1;
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Texture2D.MostDetailedMip = 0;
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Texture2D.PlaneSlice = 0;
+	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-	cacaoScreenSizeDependentInfo.depthBufferWidth = Width;
-	cacaoScreenSizeDependentInfo.depthBufferHeight = Height;
-	cacaoScreenSizeDependentInfo.depthBufferXOffset = 0;
-	cacaoScreenSizeDependentInfo.depthBufferYOffset = 0;
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	cacaoScreenSizeDependentInfo.useDownsampledSsao = FFX_CACAO_FALSE;
+	ffxCacaoD3D12InitScreenSizeDependentResources(m_pFfxCacaoContextNative, &cacaoScreenSizeDependentInfo);
+	cacaoScreenSizeDependentInfo.useDownsampledSsao = FFX_CACAO_TRUE;
+	ffxCacaoD3D12InitScreenSizeDependentResources(m_pFfxCacaoContextDownsampled, &cacaoScreenSizeDependentInfo);
+#else
+	ffxCacaoD3D12InitScreenSizeDependentResources(m_pFfxCacaoContextDownsampled, &cacaoScreenSizeDependentInfo);
 #endif
 
-	cacaoScreenSizeDependentInfo.depthBufferResource = m_cacaoDepthBuffer.GetResource();
-	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
-	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DMS;
-	cacaoScreenSizeDependentInfo.depthBufferSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-
-	ffxCacaoD3D12InitScreenSizeDependentResources(m_pCacaoContextNativeNonExpanded, &cacaoScreenSizeDependentInfo, FFX_CACAO_FALSE);
-	ffxCacaoD3D12InitScreenSizeDependentResources(m_pCacaoContextDownsampledNonExpanded, &cacaoScreenSizeDependentInfo, FFX_CACAO_TRUE);
-
-	m_CacaoOutput.CreateSRV(0, &m_applyCACAOInputs);
-	m_CacaoOutput.CreateSRV(0, &m_applyDirectInput);
-
-	m_HDR.CreateUAV(0, &m_applyCACAOOutputs);
+	m_FfxCacaoOutput.CreateSRV(0, &m_applyDirectInput);
 
 	m_applyDirect.UpdatePipeline(pSwapChain->GetFormat());
-#endif
-
-
 
     // update bloom and downscaling effect
     //
@@ -430,22 +295,11 @@ void SampleRenderer::OnDestroyWindowSizeDependentResources()
     m_bloom.OnDestroyWindowSizeDependentResources();
     m_downSample.OnDestroyWindowSizeDependentResources();
 
-#if USE_CACAO
-#if USE_EXPANDED_DEPTH_BUFFER
-	ffxCacaoD3D12DestroyScreenSizeDependentResources(m_pCacaoContextNativeExpanded);
-	ffxCacaoD3D12DestroyScreenSizeDependentResources(m_pCacaoContextDownsampledExpanded);
-	m_expandedDepthBuffer.OnDestroy();
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	ffxCacaoD3D12DestroyScreenSizeDependentResources(m_pFfxCacaoContextNative);
 #endif
-
-	ffxCacaoD3D12DestroyScreenSizeDependentResources(m_pCacaoContextNativeNonExpanded);
-	ffxCacaoD3D12DestroyScreenSizeDependentResources(m_pCacaoContextDownsampledNonExpanded);
-	m_CacaoOutput.OnDestroy();
-#endif
-
-    m_MotionBlurOutput.OnDestroy();
-    m_MotionVectors.OnDestroy();
-    m_NormalBuffer.OnDestroy();
-    m_MotionVectorsDepthMap.OnDestroy();
+	ffxCacaoD3D12DestroyScreenSizeDependentResources(m_pFfxCacaoContextDownsampled);
+	m_FfxCacaoOutput.OnDestroy();
 
     m_HDR.OnDestroy();
     m_HDRMSAA.OnDestroy();
@@ -455,9 +309,8 @@ void SampleRenderer::OnDestroyWindowSizeDependentResources()
     m_ShadowMask.OnDestroy();
 #endif
 
-#if USE_CACAO
-	m_cacaoDepthBuffer.OnDestroy();
-#endif
+	m_normalBufferNonMsaa.OnDestroy();
+	m_depthBufferNonMsaa.OnDestroy();
     m_depthBuffer.OnDestroy();
 }
 
@@ -516,22 +369,29 @@ int SampleRenderer::LoadScene(GLTFCommon *pGLTFCommon, int stage)
             );
         }
     }
-    else if (stage == 8)
-    {
-        Profile p("m_gltfMotionVectors->OnCreate");
+	else if (stage == 8)
+	{
+		Profile p("m_gltfPBR->OnCreate (Non MSAA)");
 
-        m_gltfMotionVectors = new GltfMotionVectorsPass();
-        m_gltfMotionVectors->OnCreate(
-            m_pDevice,
-            &m_UploadHeap,
-            &m_resourceViewHeaps,
-            &m_ConstantBufferRing,
-            &m_VidMemBufferPool,
-            m_pGLTFTexturesAndBuffers,
-            m_MotionVectors.GetFormat(),
-            m_NormalBuffer.GetFormat()
-        );
-    }
+		// same thing as above but for the PBR pass
+		m_gltfPBRNonMsaa = new GltfPbrPass();
+		m_gltfPBRNonMsaa->OnCreate(
+			m_pDevice,
+			&m_UploadHeap,
+			&m_resourceViewHeaps,
+			&m_ConstantBufferRing,
+			&m_VidMemBufferPool,
+			m_pGLTFTexturesAndBuffers,
+			&m_skyDome,
+			false,
+			false,
+			DXGI_FORMAT_UNKNOWN, // Don't export forward pass
+			DXGI_FORMAT_UNKNOWN, // Don't export specular roughless
+			DXGI_FORMAT_UNKNOWN, // Don't export diffuse colour
+			DXGI_FORMAT_R8G8B8A8_UNORM, // Export normals
+			1
+		);
+	}
     else if (stage == 9)
     {
         Profile p("m_gltfPBR->OnCreate");
@@ -546,12 +406,15 @@ int SampleRenderer::LoadScene(GLTFCommon *pGLTFCommon, int stage)
             &m_VidMemBufferPool,
             m_pGLTFTexturesAndBuffers,
             &m_skyDome,
-            USE_SHADOWMASK,
+			true,
+            false,
             DXGI_FORMAT_R16G16B16A16_FLOAT,
+			DXGI_FORMAT_UNKNOWN,
 			DXGI_FORMAT_UNKNOWN,
 			DXGI_FORMAT_UNKNOWN,
 			4
         );
+		m_gltfPBR->OnUpdateWindowSizeDependentResources(&m_FfxCacaoOutput);
     }
     else if (stage == 10)
     {
@@ -599,18 +462,18 @@ int SampleRenderer::LoadScene(GLTFCommon *pGLTFCommon, int stage)
 //--------------------------------------------------------------------------------------
 void SampleRenderer::UnloadScene()
 {
-    if (m_gltfPBR)
+	if (m_gltfPBRNonMsaa)
+	{
+		m_gltfPBRNonMsaa->OnDestroy();
+		delete m_gltfPBRNonMsaa;
+		m_gltfPBRNonMsaa = NULL;
+	}
+	
+	if (m_gltfPBR)
     {
         m_gltfPBR->OnDestroy();
         delete m_gltfPBR;
         m_gltfPBR = NULL;
-    }
-
-    if (m_gltfMotionVectors)
-    {
-        m_gltfMotionVectors->OnDestroy();
-        delete m_gltfMotionVectors;
-        m_gltfMotionVectors = NULL;
     }
 
     if (m_gltfDepth)
@@ -641,10 +504,8 @@ void SampleRenderer::UnloadScene()
 // OnRender
 //
 //--------------------------------------------------------------------------------------
-void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, SwapChain *pSwapChain, bool displayCacaoDirectly, bool useDownsampledSsao)
+void SampleRenderer::OnRender(State *pState, SwapChain *pSwapChain)
 {
-	m_useDownsampledSsao = useDownsampledSsao;
-
     // Timing values
     //
     UINT64 gpuTicksPerSecond;
@@ -661,6 +522,8 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
     if (m_pGLTFTexturesAndBuffers)
     {
         pPerFrame = m_pGLTFTexturesAndBuffers->m_pGLTFCommon->SetPerFrameData(pState->camera);
+		pPerFrame->invScreenResolution[0] = 1.0f / (float)m_Width;
+		pPerFrame->invScreenResolution[1] = 1.0f / (float)m_Height;
 
         //apply jittering to the camera
         if (m_HasTAA)
@@ -682,14 +545,6 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
             };
 
             sampleIndex = (sampleIndex + 1) % 16;   // 16x TAA
-
-            /* float jitterX = 2.0f * CalculateHaltonNumber(sampleIndex + 1, 2) - 1.0f;
-            float jitterY = 2.0f * CalculateHaltonNumber(sampleIndex + 1, 3) - 1.0f;
-
-            jitterX /= static_cast<float>(m_Width);
-            jitterY /= static_cast<float>(m_Height);
-
-            pState->camera.SetProjectionJitter(jitterX, jitterY); */
         }
 
         //override gltf camera with ours
@@ -754,19 +609,15 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
     pCmdLst1->ClearDepthStencilView(m_ShadowMapDSV.GetCPU(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     m_GPUTimer.GetTimeStamp(pCmdLst1, "Clear shadow map");
 
-#ifdef USE_CACAO
-#if USE_EXPANDED_DEPTH_BUFFER
-	pCmdLst1->ClearDepthStencilView(m_expandedDepthBufferDSV.GetCPU(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-#endif
-	pCmdLst1->ClearDepthStencilView(m_cacaoDepthBufferDSV.GetCPU(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-#endif
-
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
     pCmdLst1->ClearRenderTargetView(m_HDRRTVMSAA.GetCPU(), clearColor, 0, nullptr);
     m_GPUTimer.GetTimeStamp(pCmdLst1, "Clear HDR");
 
     pCmdLst1->ClearDepthStencilView(m_depthBufferDSV.GetCPU(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     m_GPUTimer.GetTimeStamp(pCmdLst1, "Clear depth");
+
+	pCmdLst1->ClearDepthStencilView(m_depthBufferNonMsaaDSV.GetCPU(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, NULL);
+	m_GPUTimer.GetTimeStamp(pCmdLst1, "Clear depth (Non MSAA)");
 
     // Render to shadow map atlas for spot lights ------------------------------------------
     //
@@ -794,111 +645,83 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
             m_GPUTimer.GetTimeStamp(pCmdLst1, "Shadow map");
             shadowMapIndex++;
         }
-
-#if USE_CACAO
-		// draw full depth buffer
-		{
-			SetViewportAndScissor(pCmdLst1, 0, 0, m_cacaoDepthBuffer.GetWidth(), m_cacaoDepthBuffer.GetHeight());
-			pCmdLst1->OMSetRenderTargets(0, NULL, true, &m_cacaoDepthBufferDSV.GetCPU());
-
-			GltfDepthPass::per_frame *cbDepthPerFrame = m_gltfDepth->SetPerFrameConstants();
-			cbDepthPerFrame->mViewProj = pPerFrame->mCameraViewProj;
-
-			m_gltfDepth->Draw(pCmdLst1);
-
-			// TODO: this
-			XMVECTOR cameraPos = pState->camera.GetPosition();
-			// pState->camera.GetNearPlane();
-			// pState->camera.GetFarPlane();
-			m_GPUTimer.GetTimeStamp(pCmdLst1, "Expanded Depth Buffer");
-		}
-
-		pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_cacaoDepthBuffer.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_DEPTH_READ));
-
-		pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_cacaoDepthBuffer.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_DEPTH_READ));
-
-		// draw expanded depth buffer
-#if USE_EXPANDED_DEPTH_BUFFER
-		{
-			XMMATRIX viewProj = pState->camera.GetView() * m_expandedDepthCamera.GetProjection();
-
-			SetViewportAndScissor(pCmdLst1, 0, 0, m_expandedDepthBuffer.GetWidth(), m_expandedDepthBuffer.GetHeight());
-			pCmdLst1->OMSetRenderTargets(0, NULL, true, &m_expandedDepthBufferDSV.GetCPU());
-
-			GltfDepthPass::per_frame *cbDepthPerFrame = m_gltfDepth->SetPerFrameConstants();
-			cbDepthPerFrame->mViewProj = viewProj;
-
-			m_gltfDepth->Draw(pCmdLst1);
-
-			// TODO: this
-			XMVECTOR cameraPos = pState->camera.GetPosition();
-			// pState->camera.GetNearPlane();
-			// pState->camera.GetFarPlane();
-			m_GPUTimer.GetTimeStamp(pCmdLst1, "Expanded Depth Buffer");
-		}
-#endif
-#endif
     }
     pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_ShadowMap.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
-    // Motion vectors ---------------------------------------------------------------------------
-    //
-    if (pPerFrame != NULL && m_gltfMotionVectors != NULL)
-    {
-        // Compute motion vectors
-        // pCmdLst1->RSSetViewports(1, &m_viewPort);
-        // pCmdLst1->RSSetScissorRects(1, &m_RectScissor);
+	// Render normal/depth buffer
+	if (pPerFrame)
+	{
+		// Render Scene to the MSAA HDR RT ------------------------------------------------
+		//
+		pCmdLst1->RSSetViewports(1, &m_viewPort);
+		pCmdLst1->RSSetScissorRects(1, &m_RectScissor);
+		pCmdLst1->OMSetRenderTargets(1, &m_normalBufferNonMsaaRTV.GetCPU(), true, &m_depthBufferNonMsaaDSV.GetCPU());
 
-		SetViewportAndScissor(pCmdLst1, 0, 0, m_Width, m_Height);
-		
-        D3D12_CPU_DESCRIPTOR_HANDLE rts[] = { m_MotionVectorsRTV.GetCPU(), m_NormalBufferRTV.GetCPU() };
-        pCmdLst1->OMSetRenderTargets(2, rts, false, &m_MotionVectorsDepthMapDSV.GetCPU());
+		// Render normal/depth buffer
+		if (m_gltfPBRNonMsaa)
+		{
+			m_gltfPBRNonMsaa->Draw(pCmdLst1, &m_ShadowMapSRV);
+		}
 
-        float clearColor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        pCmdLst1->ClearRenderTargetView(m_MotionVectorsRTV.GetCPU(), clearColor, 0, nullptr);
-        pCmdLst1->ClearRenderTargetView(m_NormalBufferRTV.GetCPU(), clearColor, 0, nullptr);
+		// resource barriers
+		{
+			D3D12_RESOURCE_BARRIER barriers[] = {
+				CD3DX12_RESOURCE_BARRIER::Transition(m_depthBufferNonMsaa.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+				CD3DX12_RESOURCE_BARRIER::Transition(m_normalBufferNonMsaa.GetResource(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+			};
+			pCmdLst1->ResourceBarrier(_countof(barriers), barriers);
+		}
 
-        pCmdLst1->ClearDepthStencilView(m_MotionVectorsDepthMapDSV.GetCPU(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+		if (pState->bUseCACAO)
+		{
+			FfxCacaoMatrix4x4 proj, normalsWorldToView;
+			{
+				XMFLOAT4X4 p;
+				XMMATRIX xProj = pState->camera.GetProjection();
+				XMStoreFloat4x4(&p, xProj);
+				proj.elements[0][0] = p._11; proj.elements[0][1] = p._12; proj.elements[0][2] = p._13; proj.elements[0][3] = p._14;
+				proj.elements[1][0] = p._21; proj.elements[1][1] = p._22; proj.elements[1][2] = p._23; proj.elements[1][3] = p._24;
+				proj.elements[2][0] = p._31; proj.elements[2][1] = p._32; proj.elements[2][2] = p._33; proj.elements[2][3] = p._34;
+				proj.elements[3][0] = p._41; proj.elements[3][1] = p._42; proj.elements[3][2] = p._43; proj.elements[3][3] = p._44;
+				XMMATRIX xView = pState->camera.GetView();
+				XMMATRIX xNormalsWorldToView = XMMATRIX(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1) * XMMatrixInverse(NULL, xView); // should be transpose(inverse(view)), but XMM is row-major and HLSL is column-major
+				XMStoreFloat4x4(&p, xNormalsWorldToView);
+				normalsWorldToView.elements[0][0] = p._11; normalsWorldToView.elements[0][1] = p._12; normalsWorldToView.elements[0][2] = p._13; normalsWorldToView.elements[0][3] = p._14;
+				normalsWorldToView.elements[1][0] = p._21; normalsWorldToView.elements[1][1] = p._22; normalsWorldToView.elements[1][2] = p._23; normalsWorldToView.elements[1][3] = p._24;
+				normalsWorldToView.elements[2][0] = p._31; normalsWorldToView.elements[2][1] = p._32; normalsWorldToView.elements[2][2] = p._33; normalsWorldToView.elements[2][3] = p._34;
+				normalsWorldToView.elements[3][0] = p._41; normalsWorldToView.elements[3][1] = p._42; normalsWorldToView.elements[3][2] = p._43; normalsWorldToView.elements[3][3] = p._44;
+			}
 
-        GltfMotionVectorsPass::per_frame *cbDepthPerFrame = m_gltfMotionVectors->SetPerFrameConstants();
-        cbDepthPerFrame->mCurrViewProj = pPerFrame->mCameraViewProj;
-        cbDepthPerFrame->mPrevViewProj = pPerFrame->mCameraViewProj; // pState->camera.GetPrevView() * pState->camera.GetProjection();
-
-        m_gltfMotionVectors->Draw(pCmdLst1);
-    }
-
-    m_GPUTimer.GetTimeStamp(pCmdLst1, "Motion vectors");
-
-    // Shadow resolve ---------------------------------------------------------------------------
-    //
-#if USE_SHADOWMASK
-    if (pPerFrame != NULL)
-    {
-        const D3D12_RESOURCE_BARRIER preShadowResolve[] =
-        {
-            CD3DX12_RESOURCE_BARRIER::Transition(m_ShadowMask.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            CD3DX12_RESOURCE_BARRIER::Transition(m_MotionVectorsDepthMap.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-        };
-        pCmdLst1->ResourceBarrier(ARRAYSIZE(preShadowResolve), preShadowResolve);
-
-        ShadowResolveFrame shadowResolveFrame;
-        shadowResolveFrame.m_Width = m_Width;
-        shadowResolveFrame.m_Height = m_Height;
-        shadowResolveFrame.m_ShadowMapSRV = m_ShadowMapSRV;
-        shadowResolveFrame.m_DepthBufferSRV = m_MotionVectorsDepthMapSRV;
-        shadowResolveFrame.m_ShadowBufferUAV = m_ShadowMaskUAV;
-
-        m_shadowResolve.Draw(pCmdLst1, m_pGLTFTexturesAndBuffers, &shadowResolveFrame);
-
-        const D3D12_RESOURCE_BARRIER postShadowResolve[] =
-        {
-            CD3DX12_RESOURCE_BARRIER::Transition(m_ShadowMask.GetResource(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
-            CD3DX12_RESOURCE_BARRIER::Transition(m_MotionVectorsDepthMap.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE)
-        };
-        pCmdLst1->ResourceBarrier(ARRAYSIZE(postShadowResolve), postShadowResolve);
-    }
-    m_GPUTimer.GetTimeStamp(pCmdLst1, "Shadow resolve");
+			FfxCacaoD3D12Context *context = NULL;
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+			context = pState->bUseDownsampledSSAO ? m_pFfxCacaoContextDownsampled : m_pFfxCacaoContextNative;
+#else
+			context = m_pFfxCacaoContextDownsampled;
 #endif
+
+			pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_FfxCacaoOutput.GetResource(), D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+
+			ffxCacaoD3D12UpdateSettings(context, &pState->cacaoSettings);
+			ffxCacaoD3D12Draw(context, pCmdLst1, &proj, &normalsWorldToView);
+		}
+		else
+		{
+			pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_FfxCacaoOutput.GetResource(), D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+			uint32_t dummy = 0;
+			D3D12_GPU_VIRTUAL_ADDRESS dummyConstantBufferAddress = m_ConstantBufferRing.AllocConstantBuffer(sizeof(dummy), &dummy);
+			m_cacaoUavClear.Draw(pCmdLst1, dummyConstantBufferAddress, &m_FfxCacaoOutputUAV, NULL, m_Width, m_Height, 1);
+			pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_FfxCacaoOutput.GetResource(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_GENERIC_READ));
+		}
+
+		// resource barriers
+		{
+			D3D12_RESOURCE_BARRIER barriers[] = {
+				CD3DX12_RESOURCE_BARRIER::Transition(m_depthBufferNonMsaa.GetResource(),  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE),
+				CD3DX12_RESOURCE_BARRIER::Transition(m_normalBufferNonMsaa.GetResource(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET),
+			};
+			pCmdLst1->ResourceBarrier(_countof(barriers), barriers);
+		}
+	}
 
     // Render Scene to the MSAA HDR RT ------------------------------------------------
     //
@@ -937,11 +760,7 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
         if (m_gltfPBR && pPerFrame != NULL)
         {
             //set per frame constant buffer values
-#if USE_SHADOWMASK
-            m_gltfPBR->Draw(pCmdLst1, &m_ShadowMaskSRV);
-#else
             m_gltfPBR->Draw(pCmdLst1, &m_ShadowMapSRV);
-#endif
         }
 
         // draw object's bounding boxes
@@ -976,7 +795,7 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
         }
     }
     pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_ShadowMap.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE));
-    pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_depthBuffer.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    // pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_depthBuffer.GetResource(), D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
     m_GPUTimer.GetTimeStamp(pCmdLst1, "Rendering scene");
 
@@ -1004,66 +823,8 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
 
     // Post proc---------------------------------------------------------------------------
     //
+	if (0)
     {
-        // TAA + Sharpen
-        //
-        /* if (m_HasTAA)
-        {
-            D3D12_RESOURCE_BARRIER preTAA[] = {
-                CD3DX12_RESOURCE_BARRIER::Transition(m_TAABuffer.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
-            };
-            pCmdLst1->ResourceBarrier(ARRAYSIZE(preTAA), preTAA);
-
-            // break down of the descriptor tables:
-            //  m_TAABufferUAV = { m_TAABuffer }
-            //  m_TAAInputsSRV = { m_HDR, m_MotionVectorsDepthMap, m_HistoryBuffer, m_MotionVectors }
-            m_taa.Draw(pCmdLst1, &m_TAABufferUAV, &m_TAAInputsSRV, m_Width, m_Height);
-            m_GPUTimer.GetTimeStamp(pCmdLst1, "TAA");
-
-            D3D12_RESOURCE_BARRIER postTAA[] = {
-                CD3DX12_RESOURCE_BARRIER::Transition(m_HDR.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET),
-                CD3DX12_RESOURCE_BARRIER::Transition(m_TAABuffer.GetResource(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
-                CD3DX12_RESOURCE_BARRIER::Transition(m_HistoryBuffer.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET)
-            };
-            pCmdLst1->ResourceBarrier(ARRAYSIZE(postTAA), postTAA);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE renderTargets[] = {
-                m_HDRRTV.GetCPU(),
-                m_HistoryBufferRTV.GetCPU()
-            };
-            pCmdLst1->OMSetRenderTargets(ARRAYSIZE(renderTargets), renderTargets, false, NULL);
-
-            // m_TAABufferSRV = { m_TAABuffer }
-            m_sharpen.Draw(pCmdLst1, &m_TAABufferSRV);
-            m_GPUTimer.GetTimeStamp(pCmdLst1, "Sharpen");
-
-            D3D12_RESOURCE_BARRIER postSharpen[] = {
-                CD3DX12_RESOURCE_BARRIER::Transition(m_HDR.GetResource(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
-                CD3DX12_RESOURCE_BARRIER::Transition(m_HistoryBuffer.GetResource(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-            };
-            pCmdLst1->ResourceBarrier(ARRAYSIZE(postSharpen), postSharpen);
-        } */
-
-        // Motion blur, this is still WIP
-        //
-        /*
-        {
-            pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_MotionVectors.GetResource(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-            pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_MotionBlurOutput.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-
-            // break down of the descriptor tables:
-            //  m_MotionVectorsInputsSRV = { m_HDR, m_MotionVectors }
-            //  m_MotionBlurOutputUAV = { m_MotionBlurOutput }
-            m_motionBlur.Draw(pCmdLst1, NULL, &m_MotionBlurOutputUAV, &m_MotionVectorsInputsSRV, m_Width/8, m_Height/8, 1);
-
-            pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_MotionBlurOutput.GetResource(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-            pCmdLst1->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_MotionVectors.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-            m_GPUTimer.GetTimeStamp(pCmdLst1, "Motion Blur");
-
-        }
-        */
-
         // Bloom, takes HDR as input and applies bloom to it.
         //
         {
@@ -1079,50 +840,6 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
             m_GPUTimer.GetTimeStamp(pCmdLst1, "Bloom");
         }
     }
-
-#if USE_CACAO
-	static bool outputCACAODirectly = true;
-
-	if (pState->bUseCACAO)
-	{
-		FfxCacaoMatrix4x4 proj, normalsWorldToView;
-		{
-			XMFLOAT4X4 p;
-			XMMATRIX xProj = pState->camera.GetProjection();
-			XMStoreFloat4x4(&p, xProj);
-			proj.elements[0][0] = p._11; proj.elements[0][1] = p._12; proj.elements[0][2] = p._13; proj.elements[0][3] = p._14;
-			proj.elements[1][0] = p._21; proj.elements[1][1] = p._22; proj.elements[1][2] = p._23; proj.elements[1][3] = p._24;
-			proj.elements[2][0] = p._31; proj.elements[2][1] = p._32; proj.elements[2][2] = p._33; proj.elements[2][3] = p._34;
-			proj.elements[3][0] = p._41; proj.elements[3][1] = p._42; proj.elements[3][2] = p._43; proj.elements[3][3] = p._44;
-			XMMATRIX xView = pState->camera.GetView();
-			XMMATRIX xNormalsWorldToView = XMMATRIX(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1) * XMMatrixInverse(NULL, xView); // should be transpose(inverse(view)), but XMM is row-major and HLSL is column-major
-			XMStoreFloat4x4(&p, xNormalsWorldToView);
-			normalsWorldToView.elements[0][0] = p._11; normalsWorldToView.elements[0][1] = p._12; normalsWorldToView.elements[0][2] = p._13; normalsWorldToView.elements[0][3] = p._14;
-			normalsWorldToView.elements[1][0] = p._21; normalsWorldToView.elements[1][1] = p._22; normalsWorldToView.elements[1][2] = p._23; normalsWorldToView.elements[1][3] = p._24;
-			normalsWorldToView.elements[2][0] = p._31; normalsWorldToView.elements[2][1] = p._32; normalsWorldToView.elements[2][2] = p._33; normalsWorldToView.elements[2][3] = p._34;
-			normalsWorldToView.elements[3][0] = p._41; normalsWorldToView.elements[3][1] = p._42; normalsWorldToView.elements[3][2] = p._43; normalsWorldToView.elements[3][3] = p._44;
-		}
-
-		FfxCacaoD3D12Context *context = NULL;
-#if USE_EXPANDED_DEPTH_BUFFER
-		if (useExpandedDepthBuffer)
-		{
-			context = useDownsampledSsao ? m_pCacaoContextDownsampledExpanded : m_pCacaoContextNativeExpanded;
-		}
-		else
-		{
-			context = useDownsampledSsao ? m_pCacaoContextDownsampledNonExpanded : m_pCacaoContextNativeNonExpanded;
-		}
-#else
-		context = useDownsampledSsao ? m_pCacaoContextDownsampledNonExpanded : m_pCacaoContextNativeNonExpanded;
-#endif
-
-		ffxCacaoD3D12UpdateSettings(context, cacaoSettings);
-		ffxCacaoD3D12Draw(context, pCmdLst1, &proj, &normalsWorldToView);
-
-		m_applyCACAO.Draw(pCmdLst1, NULL, &m_applyCACAOOutputs, &m_applyCACAOInputs, (m_Width + APPLY_CACAO_WIDTH - 1) / APPLY_CACAO_WIDTH, (m_Height + APPLY_CACAO_HEIGHT - 1) / APPLY_CACAO_HEIGHT, 1);
-	}
-#endif
 
     // submit command buffer
 
@@ -1140,8 +857,7 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
 
     // Tonemapping ------------------------------------------------------------------------
     //
-#if USE_CACAO
-	if (displayCacaoDirectly)
+	if (pState->bDisplayCacaoDirectly)
 	{
 		pCmdLst2->RSSetViewports(1, &m_viewPort);
 		pCmdLst2->RSSetScissorRects(1, &m_RectScissor);
@@ -1150,7 +866,6 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
 		m_applyDirect.Draw(pCmdLst2, 1, &m_applyDirectInput, NULL);
 	}
 	else
-#endif
 	{
         pCmdLst2->RSSetViewports(1, &m_viewPort);
         pCmdLst2->RSSetScissorRects(1, &m_RectScissor);
@@ -1161,16 +876,6 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
 
         pCmdLst2->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_HDR.GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET));
     }
-
-	// debug output
-	if (false)
-	{
-		bool opened = true;
-		ImGui::Begin("Normal Buffer", &opened);
-		ImGui::Image((ImTextureID)&m_NormalBufferSRV, ImVec2(320 * 4, 180 * 4));
-		ImGui::End();
-	}
-
 
     // Render HUD  ------------------------------------------------------------------------
     //
@@ -1198,32 +903,19 @@ void SampleRenderer::OnRender(State *pState, FfxCacaoSettings *cacaoSettings, Sw
 
     ID3D12CommandList* CmdListList2[] = { pCmdLst2 };
     m_pDevice->GetGraphicsQueue()->ExecuteCommandLists(1, CmdListList2);
-
-    // Update previous camera matrices
-    //
-    // pState->camera.UpdatePreviousMatrices();
 }
 
-#if USE_CACAO
-#if FFX_CACAO_ENABLE_PROFILING
-void SampleRenderer::GetCacaoTimings(FfxCacaoDetailedTiming* timings, uint64_t* gpuTicksPerSecond)
+#ifdef FFX_CACAO_ENABLE_PROFILING
+void SampleRenderer::GetCacaoTimings(State *pState, FfxCacaoDetailedTiming* timings, uint64_t* gpuTicksPerSecond)
 {
 	FfxCacaoD3D12Context *context = NULL;
-#if USE_EXPANDED_DEPTH_BUFFER
-	if (m_useExpandedDepthBuffer)
-	{
-		context = m_useDownsampledSsao ? m_pCacaoContextDownsampledExpanded : m_pCacaoContextNativeExpanded;
-	}
-	else
-	{
-		context = m_useDownsampledSsao ? m_pCacaoContextDownsampledNonExpanded : m_pCacaoContextNativeNonExpanded;
-	}
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	context = pState->bUseDownsampledSSAO ? m_pFfxCacaoContextDownsampled : m_pFfxCacaoContextNative;
 #else
-	context = m_useDownsampledSsao ? m_pCacaoContextDownsampledNonExpanded : m_pCacaoContextNativeNonExpanded;
+	context = m_pFfxCacaoContextDownsampled;
 #endif
 
 	ffxCacaoD3D12GetDetailedTimings(context, timings);
 	m_pDevice->GetGraphicsQueue()->GetTimestampFrequency(gpuTicksPerSecond);
 }
-#endif
 #endif

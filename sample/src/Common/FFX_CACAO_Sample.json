@@ -1,0 +1,65 @@
+{
+  "globals": {
+    "benchmark": false,
+    "timeStep": 1,
+    "CpuValidationLayerEnabled": false,
+    "GpuValidationLayerEnabled": false,
+    "width": 1920,
+    "height": 1080,
+    "preset":  0
+  },
+  "scenes": [
+    {
+      "name": "Sponza",
+      "directory": "..\\media\\sponza\\GLTF\\",
+      "filename": "sponza.gltf",
+      "TAA": false,
+      "toneMapper": 0,
+      "iblFactor": 0.6,
+      "emmisiveFactor": 1,
+      "intensity": 10,
+      "exposure": 1,
+      "activeCamera": -1,
+      "camera": {
+        "yaw": 1.92130506,
+        "pitch": 0.182035938,
+        "distance": 4.8,
+        "lookAt": [ 0.703276634, 1.02280307, 0.218072295 ]
+      },
+      "BenchmarkSettings": {
+        "timeStep": 1,
+        "timeStart": 0,
+        "timeEnd": 10000,
+        "exitWhenTimeEnds": true,
+        "resultsFilename": "Sponza.csv",
+        "warmUpFrames": 200,
+        "sequence": {
+          "timeStart": 0,
+          "timeEnd": 3000,
+          "keyFrames": [
+            {
+              "time": 0,
+              "from": [ 5.13694048, 1.89175785, -1.40289795 ],
+              "to": [ 0.703276634, 1.02280307, 0.218072295 ]
+            },
+            {
+              "time": 750,
+              "from": [ 5.13694048, 1.89175785, -1.40289795 ],
+              "to": [ 0.703276634, 3.02280307, 0.218072295 ]
+            },
+            {
+              "time": 1500,
+              "from": [ -5.13694048, 1.89175785, -1.40289795 ],
+              "to": [ 0.703276634, 1.02280307, 0.218072295 ]
+            },
+            {
+              "time": 2250,
+              "from": [ -5.13694048, 1.89175785, -1.40289795 ],
+              "to": [ 0.703276634, 3.02280307, 0.218072295 ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
-// AMD SampleDX12 sample code
+// AMD SampleVK sample code
 // 
-// Copyright(c) 2017 Advanced Micro Devices, Inc.All rights reserved.
+// Copyright(c) 2018 Advanced Micro Devices, Inc.All rights reserved.
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files(the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
@@ -20,7 +20,20 @@
 
 #include "SampleRenderer.h"
 
-#include "ffx_cacao.h"
+//
+// This is the main class, it manages the state of the sample and does all the high level work without touching the GPU directly.
+// This class uses the GPU via the the SampleRenderer class. We would have a SampleRenderer instance for each GPU.
+//
+// This class takes care of:
+//
+//    - loading a scene (just the CPU data)
+//    - updating the camera
+//    - keeping track of time
+//    - handling the keyboard
+//    - updating the animation
+//    - building the UI (but do not renders it)
+//    - uses the SampleRenderer to update all the state to the GPU and do the rendering
+//
 
 class FfxCacaoSample : public FrameworkWindows
 {
@@ -28,53 +41,50 @@ public:
     FfxCacaoSample(LPCSTR name);
     void OnCreate(HWND hWnd);
     void OnDestroy();
-	void BuildUI();
+    void BuildUI();
 	void OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint32_t* pHeight, bool *pbFullScreen);
-	void OnRender();
+    void OnRender();
     bool OnEvent(MSG msg);
-	void OnResize(uint32_t width, uint32_t height) { OnResize(width, height, false); }
-    void OnResize(uint32_t Width, uint32_t Height, bool force);
+    void OnResize(uint32_t Width, uint32_t Height) { OnResize(Width, Height, DISPLAYMODE_SDR, false); }
+    void OnResize(uint32_t Width, uint32_t Height, DisplayModes displayMode, bool force);
     void SetFullScreen(bool fullscreen);
     
 private:
-	HWND                  m_hWnd;
-
-    Device                m_device;
+    Device m_device;
     SwapChain             m_swapChain;
 
+    DisplayModes              m_currentDisplayMode;
+    std::vector<DisplayModes> m_displayModesAvailable;
+    std::vector<const char *> m_displayModesNamesAvailable;
+
     GLTFCommon           *m_pGltfLoader = NULL;
+    bool                  m_loadingScene = false;
 
     SampleRenderer       *m_Node = NULL;
     SampleRenderer::State m_state;
-
-	int                   m_loadingStage = 0;
-	bool                  m_requiresLoad = true;
-	int                   m_preset;
 
     float                 m_distance;
     float                 m_roll;
     float                 m_pitch;
 
+	float                 m_microsecondsPerGpuTick;
     float                 m_time;             // WallClock in seconds.
-    double                m_deltaTime;        // The elapsed time in milliseconds since the previous frame.
     double                m_lastFrameTime;
-
-	bool                  m_isCapturing = false;
-	bool                  m_vsyncEnabled = false;
+    float                 m_timeStep = 0;
 	int                   m_cameraControlSelected = 0;
-    bool                  m_bPlay;
-	bool                  m_displayGUI;
-	bool                  m_fullscreen;
 
-	// json config file
-	json                        m_jsonConfigFile;
-	std::vector<std::string>    m_sceneNames;
+    // json config file
+    json                        m_jsonConfigFile;
+    std::vector<std::string>    m_sceneNames;
 	int                         m_activeScene;
 	int                         m_activeCamera;
 	bool                        m_isCpuValidationLayerEnabled;
 	bool                        m_isGpuValidationLayerEnabled;
 
-	int                         m_presetIndex = 0;
+	bool                  m_vsyncEnabled = false;
+    bool                  m_bPlay;
+	bool                  m_requiresLoad = true;
+	int                         m_presetIndex = 3;
 
 #ifdef FFX_CACAO_ENABLE_PROFILING
 	char     m_benchmarkFilename[1024];

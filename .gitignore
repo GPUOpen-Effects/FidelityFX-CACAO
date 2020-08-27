@@ -3,6 +3,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+ffx-cacao/src/PrecompiledShadersSPIRV
+ffx-cacao/src/PrecompiledShadersDXIL
+
 # User-specific files
 *.rsuser
 *.suo

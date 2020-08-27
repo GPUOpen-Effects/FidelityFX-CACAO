@@ -1,4 +1,4 @@
-// AMD SampleDX12 sample code
+// AMD SampleVK sample code
 // 
 // Copyright(c) 2018 Advanced Micro Devices, Inc.All rights reserved.
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,15 +20,17 @@
 
 #include "ffx_cacao.h"
 
-static const int backBufferCount = 2;
+// We are queuing (backBufferCount + 0.5) frames, so we need to triple buffer the resources that get modified each frame
+static const int backBufferCount = 3;
 
 #define USE_VID_MEM true
 
-using namespace CAULDRON_DX12;
+using namespace CAULDRON_VK;
 
 //
 // This class deals with the GPU side of the sample.
 //
+
 class SampleRenderer
 {
 public:
@@ -52,19 +54,20 @@ public:
         int   skyDomeType;
         bool  bDrawBoundingBoxes;
 
-        uint32_t  spotlightCount;
-        Spotlight spotlight[4];
+        bool  m_useTAA;
+
         bool  bDrawLightFrustum;
 
 #ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-		bool bUseDownsampledSSAO;
+		bool             m_useDownsampledSsao;
 #endif
-		bool bDisplayCacaoDirectly;
-		bool bUseCACAO;
-		FfxCacaoSettings cacaoSettings;
-    };
+		FfxCacaoSettings m_cacaoSettings;
+		bool             m_useCacao;
+		bool             m_dispalyCacaoDirectly;
 
-    void OnCreate(Device* pDevice, SwapChain *pSwapChain);
+	};
+
+    void OnCreate(Device *pDevice, SwapChain *pSwapChain);
     void OnDestroy();
 
     void OnCreateWindowSizeDependentResources(SwapChain *pSwapChain, uint32_t Width, uint32_t Height);
@@ -73,36 +76,39 @@ public:
     int LoadScene(GLTFCommon *pGLTFCommon, int stage = 0);
     void UnloadScene();
 
+#ifdef FFX_CACAO_ENABLE_PROFILING
+	void GetCacaoTimingValues(State* pState, FfxCacaoDetailedTiming* timings);
+#endif
     const std::vector<TimeStamp> &GetTimingValues() { return m_TimeStamps; }
 
     void OnRender(State *pState, SwapChain *pSwapChain);
 
-#ifdef FFX_CACAO_ENABLE_PROFILING
-	void GetCacaoTimings(State *pState, FfxCacaoDetailedTiming* timings, uint64_t* gpuTicksPerSecong);
-#endif
-
 private:
-    Device                         *m_pDevice;
+    Device *m_pDevice;
+
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	FfxCacaoVkContext              *m_cacaoContextNative;
+#endif
+	FfxCacaoVkContext              *m_cacaoContextDownsampled;
 
     uint32_t                        m_Width;
     uint32_t                        m_Height;
-	uint32_t                        m_HalfWidth;
-	uint32_t                        m_HalfHeight;
-    D3D12_VIEWPORT                  m_viewPort;
-    D3D12_RECT                      m_RectScissor;
-    bool                            m_HasTAA = false;
+
+    VkRect2D                        m_rectScissor;
+    VkViewport                      m_viewport;
 
     // Initialize helper classes
     ResourceViewHeaps               m_resourceViewHeaps;
     UploadHeap                      m_UploadHeap;
     DynamicBufferRing               m_ConstantBufferRing;
     StaticBufferPool                m_VidMemBufferPool;
+    StaticBufferPool                m_SysMemBufferPool;
     CommandListRing                 m_CommandListRing;
     GPUTimestamps                   m_GPUTimer;
 
     //gltf passes
-	GltfPbrPass                    *m_gltfPBRNonMsaa;
     GltfPbrPass                    *m_gltfPBR;
+	GltfPbrPass                    *m_gltfPbrNonMsaa;
     GltfBBoxPass                   *m_gltfBBox;
     GltfDepthPass                  *m_gltfDepth;
     GLTFTexturesAndBuffers         *m_pGLTFTexturesAndBuffers;
@@ -112,68 +118,67 @@ private:
     SkyDome                         m_skyDome;
     DownSamplePS                    m_downSample;
     SkyDomeProc                     m_skyDomeProc;
-    ToneMapping                     m_toneMapping;
-    PostProcCS                      m_motionBlur;
-    Sharpen                         m_sharpen;
-    TAA                             m_taa;
-
-	// ================================
-	// CACAO stuff
-	CBV_SRV_UAV                     m_applyDirectInput;
-	PostProcPS                      m_applyDirect;
-	PostProcCS                      m_cacaoUavClear;
-
-	Texture                         m_FfxCacaoOutput;
-	CBV_SRV_UAV                     m_FfxCacaoOutputUAV;
-	CBV_SRV_UAV                     m_FfxCacaoOutputSRV;
-
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-	FfxCacaoD3D12Context           *m_pFfxCacaoContextNative;
-#endif
-	FfxCacaoD3D12Context           *m_pFfxCacaoContextDownsampled;
+    ToneMapping                     m_toneMappingPS;
+    ToneMappingCS                   m_toneMappingCS;
+    ColorConversionPS               m_colorConversionPS;
 
     // GUI
     ImGUI                           m_ImGUI;
 
-	// Deferred pass buffers
-	Texture     m_depthBufferNonMsaa;
-	DSV         m_depthBufferNonMsaaDSV;
-	CBV_SRV_UAV m_depthBufferNonMsaaSRV;
-
-	Texture     m_normalBufferNonMsaa;
-	RTV         m_normalBufferNonMsaaRTV;
-	CBV_SRV_UAV m_normalBufferNonMsaaSRV;
+    // Temporary render targets
 
     // depth buffer
     Texture                         m_depthBuffer;
-    DSV                             m_depthBufferDSV;
-    CBV_SRV_UAV                     m_depthBufferSRV;
-
-    // TAA buffer
-    Texture                         m_TAABuffer;
-    CBV_SRV_UAV                     m_TAABufferSRV;
-    CBV_SRV_UAV                     m_TAABufferUAV;
-    CBV_SRV_UAV                     m_TAAInputsSRV;
-    Texture                         m_HistoryBuffer;
-    RTV                             m_HistoryBufferRTV;
-
+    VkImageView                     m_depthBufferDSV;
+	
     // shadowmaps
-    Texture                         m_ShadowMap;
-    DSV                             m_ShadowMapDSV;
-    CBV_SRV_UAV                     m_ShadowMapSRV;
+    Texture                         m_shadowMap;
+    VkImageView                     m_shadowMapDSV;
+    VkImageView                     m_shadowMapSRV;
 
     // MSAA RT
     Texture                         m_HDRMSAA;
-    RTV                             m_HDRRTVMSAA;
+    VkImageView                     m_HDRMSAASRV;
+
+	// Non MSAA
+	Texture     m_NormalBufferNonMsaa;
+	Texture     m_DepthBufferNonMsaa;
+	VkImageView m_NormalBufferNonMsaaView;
+	VkImageView m_DepthBufferNonMsaaView;
 
     // Resolved RT
     Texture                         m_HDR;
-    CBV_SRV_UAV                     m_HDRSRV;
-    RTV                             m_HDRRTV;
+    VkImageView                     m_HDRSRV;
+    VkImageView                     m_HDRUAV;
+
+	// CACAO
+	Texture                         m_cacaoOutput;
+	VkImageView                     m_cacaoOutputSRV;
+
+	Texture                         m_finalOutput;
+	VkImageView                     m_finalOutputView;
+
+	uint32_t                        m_curBackBuffer;
+
+	VkSampler                       m_directOutputSampler;
+	VkDescriptorSet                 m_directOutputDescriptorSets[backBufferCount];
+	VkDescriptorSetLayout           m_directOutputDescriptorSetLayout;
+	PostProcPS                      m_directOutputPS;
 
     // widgets
     Wireframe                       m_wireframe;
     WireframeBox                    m_wireframeBox;
 
+    VkRenderPass                    m_render_pass_shadow;
+    VkRenderPass                    m_render_pass_HDR_MSAA;
+    VkRenderPass                    m_render_pass_PBR_HDR;
+	VkRenderPass                    m_render_pass_non_msaa;
+
+    VkFramebuffer                   m_pFrameBuffer_shadow;
+    VkFramebuffer                   m_pFrameBuffer_HDR_MSAA;
+    VkFramebuffer                   m_pFrameBuffer_PBR_HDR;
+	VkFramebuffer                   m_pFrameBuffer_non_msaa;
+
     std::vector<TimeStamp>          m_TimeStamps;
 };
+

@@ -1,4 +1,4 @@
-// Modifications Copyright © 2020. Advanced Micro Devices, Inc. All Rights Reserved.
+// Modifications Copyright  2020. Advanced Micro Devices, Inc. All Rights Reserved.
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Copyright (c) 2016, Intel Corporation
@@ -152,35 +152,12 @@ cbuffer SSAOConstantsBuffer                          : register(b0)    // corres
 }
 
 
-Texture2D<float>          g_DepthSource              : register(t0);
-
-RWTexture2D<float>        g_out0                     : register(u0);
-RWTexture2D<float>        g_out1                     : register(u1);
-RWTexture2D<float>        g_out2                     : register(u2);
-RWTexture2D<float>        g_out3                     : register(u3);
-RWTexture2D<unorm float4> g_NormalsOutputUAV         : register(u4);
-
-
-Texture2D<min16float2>    g_BlurInput                : register(t0);
-RWTexture2D<min16float2>  g_BlurOutput               : register(u0);
-
-
-Texture2D           g_NormalmapSource           : register(t1);   // corresponds to SSAO_TEXTURE_SLOT1
-
-Texture2D<float>    g_ViewspaceDepthSource      : register(t0);
-// g_NormalmapSource                              register(t1);
-Texture1D<uint>     g_LoadCounter               : register(t2);
-Texture2D<float>    g_ImportanceMap             : register(t3);
-Texture2DArray      g_FinalSSAO                 : register(t4);
-Texture1D<float>    g_ZeroTexture               : register(t5);
-Texture2DArray      g_deinterlacedNormals       : register(t6);
-
-RWTexture2D<float2> g_SSAOOutput                : register(u0);
-// RWTexture1D<uint>   g_LoadCounterOutputUAV      : register(u1);
-
-RWTexture2D<float> g_ApplyOutput    : register(u0);
-Texture2DArray     g_ApplyFinalSSAO : register(t0);
-
+RWTexture1D<uint> g_ClearLoadCounterInput : register(u0);
+[numthreads(1, 1, 1)]
+void CSClearLoadCounter()
+{
+	g_ClearLoadCounterInput[0] = 0;
+}
 
 // packing/unpacking for edges; 2 bits per edge mean 4 gradient values (0, 0.33, 0.66, 1) for smoother transitions!
 float PackEdges(float4 edgesLRTB)
@@ -285,7 +262,12 @@ float3 CalculateNormal(const float4 edgesLRTB, float3 pixCenterPos, float3 pixLP
 	return pixelNormal;
 }
 
+
+// ================================================================================
 // Blur stuff
+
+Texture2DArray<float2>    g_BlurInput  : register(t0);
+RWTexture2DArray<float2>  g_BlurOutput : register(u0);
 
 void AddSample(float ssaoValue, float edgeValue, inout float sum, inout float sumWeight)
 {
@@ -297,11 +279,12 @@ void AddSample(float ssaoValue, float edgeValue, inout float sum, inout float su
 
 float2 SampleBlurredWide(float2 inPos, float2 coord)
 {
-	float2 vC = g_BlurInput.SampleLevel(g_PointMirrorSampler, coord, 0.0, int2(0, 0)).xy;
-	float2 vL = g_BlurInput.SampleLevel(g_PointMirrorSampler, coord, 0.0, int2(-2, 0)).xy;
-	float2 vT = g_BlurInput.SampleLevel(g_PointMirrorSampler, coord, 0.0, int2(0, -2)).xy;
-	float2 vR = g_BlurInput.SampleLevel(g_PointMirrorSampler, coord, 0.0, int2(2, 0)).xy;
-	float2 vB = g_BlurInput.SampleLevel(g_PointMirrorSampler, coord, 0.0, int2(0, 2)).xy;
+	float3 fullCoord = float3(coord, 0.0f);
+	float2 vC = g_BlurInput.SampleLevel(g_PointMirrorSampler, fullCoord, 0.0, int2(0, 0)).xy;
+	float2 vL = g_BlurInput.SampleLevel(g_PointMirrorSampler, fullCoord, 0.0, int2(-2, 0)).xy;
+	float2 vT = g_BlurInput.SampleLevel(g_PointMirrorSampler, fullCoord, 0.0, int2(0, -2)).xy;
+	float2 vR = g_BlurInput.SampleLevel(g_PointMirrorSampler, fullCoord, 0.0, int2(2, 0)).xy;
+	float2 vB = g_BlurInput.SampleLevel(g_PointMirrorSampler, fullCoord, 0.0, int2(0, 2)).xy;
 
 	float packedEdges = vC.y;
 	float4 edgesLRTB = UnpackEdges(packedEdges);
@@ -369,17 +352,17 @@ Edges_4 UnpackEdgesFloat16_4(min16float4 _packedVal)
 {
 	uint4 packedVal = (uint4)(_packedVal * 255.5);
 	Edges_4 result;
-	result.left = saturate(min16float4((packedVal >> 6) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness);
-	result.right = saturate(min16float4((packedVal >> 4) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness);
-	result.top = saturate(min16float4((packedVal >> 2) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness);
-	result.bottom = saturate(min16float4((packedVal >> 0) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness);
+	result.left   = min16float4(saturate(min16float4((packedVal >> 6) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness));
+	result.right  = min16float4(saturate(min16float4((packedVal >> 4) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness));
+	result.top    = min16float4(saturate(min16float4((packedVal >> 2) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness));
+	result.bottom = min16float4(saturate(min16float4((packedVal >> 0) & 0x03) / 3.0 + g_CACAOConsts.InvSharpness));
 
 	return result;
 }
 
 min16float4 CalcBlurredSampleF16_4(min16float4 packedEdges, min16float4 centre, min16float4 left, min16float4 right, min16float4 top, min16float4 bottom)
 {
-	min16float4 sum = centre * 0.5f;
+	min16float4 sum = centre * min16float(0.5f);
 	min16float4 weight = min16float4(0.5f, 0.5f, 0.5f, 0.5f);
 	Edges_4 edges = UnpackEdgesFloat16_4(packedEdges);
 
@@ -404,17 +387,18 @@ void LDSEdgeSensitiveBlur(const uint blurPasses, const uint2 tid, const uint2 gi
 	min16float4 packedEdges[QUARTER_TILE_WIDTH][TILE_HEIGHT];
 	{
 		float2 input[TILE_WIDTH][TILE_HEIGHT];
+		int y;
 		[unroll]
-		for (int y = 0; y < TILE_HEIGHT; ++y)
+		for (y = 0; y < TILE_HEIGHT; ++y)
 		{
 			[unroll]
 			for (int x = 0; x < TILE_WIDTH; ++x)
 			{
-				input[x][y] = g_BlurInput.SampleLevel(g_PointMirrorSampler, float2(imageCoord + int2(x, y) + 0.5f) * g_CACAOConsts.SSAOBufferInverseDimensions, 0).xy;
+				input[x][y] = g_BlurInput.SampleLevel(g_PointMirrorSampler, float3((imageCoord + int2(x, y) + 0.5f) * g_CACAOConsts.SSAOBufferInverseDimensions, 0.0f), 0).xy;
 			}
 		}
 		[unroll]
-		for (int y = 0; y < TILE_HEIGHT; ++y)
+		for (y = 0; y < TILE_HEIGHT; ++y)
 		{
 			[unroll]
 			for (int x = 0; x < QUARTER_TILE_WIDTH; ++x)
@@ -432,7 +416,7 @@ void LDSEdgeSensitiveBlur(const uint blurPasses, const uint2 tid, const uint2 gi
 	GroupMemoryBarrierWithGroupSync();
 
 	[unroll]
-	for (int i = 0; i < (blurPasses + 1) / 2; ++i)
+	for (uint i = 0; i < (blurPasses + 1) / 2; ++i)
 	{
 		[unroll]
 		for (int y = 0; y < TILE_HEIGHT; ++y)
@@ -485,15 +469,15 @@ void LDSEdgeSensitiveBlur(const uint blurPasses, const uint2 tid, const uint2 gi
 	}
 
 	[unroll]
-	for (int y = 0; y < TILE_HEIGHT; ++y)
+	for (uint y = 0; y < TILE_HEIGHT; ++y)
 	{
-		int outputY = TILE_HEIGHT * tid.y + y;
+		uint outputY = TILE_HEIGHT * tid.y + y;
 		if (blurPasses <= outputY && outputY < TILE_HEIGHT * BLUR_HEIGHT - blurPasses)
 		{
 			[unroll]
 			for (int x = 0; x < QUARTER_TILE_WIDTH; ++x)
 			{
-				int outputX = TILE_WIDTH * tid.x + 4 * x;
+				uint outputX = TILE_WIDTH * tid.x + 4 * x;
 
 				min16float4 ssaoVal;
 				if (blurPasses % 2 == 0)
@@ -507,22 +491,22 @@ void LDSEdgeSensitiveBlur(const uint blurPasses, const uint2 tid, const uint2 gi
 
 				if (blurPasses <= outputX && outputX < TILE_WIDTH * BLUR_WIDTH - blurPasses)
 				{
-					g_BlurOutput[imageCoord + int2(4 * x, y)] = ssaoVal.x;
+					g_BlurOutput[int3(imageCoord + int2(4 * x, y), 0)] = float2(ssaoVal.x, packedEdges[x][y].x);
 				}
 				outputX += 1;
 				if (blurPasses <= outputX && outputX < TILE_WIDTH * BLUR_WIDTH - blurPasses)
 				{
-					g_BlurOutput[imageCoord + int2(4 * x + 1, y)] = ssaoVal.y;
+					g_BlurOutput[int3(imageCoord + int2(4 * x + 1, y), 0)] = float2(ssaoVal.y, packedEdges[x][y].y);
 				}
 				outputX += 1;
 				if (blurPasses <= outputX && outputX < TILE_WIDTH * BLUR_WIDTH - blurPasses)
 				{
-					g_BlurOutput[imageCoord + int2(4 * x + 2, y)] = ssaoVal.z;
+					g_BlurOutput[int3(imageCoord + int2(4 * x + 2, y), 0)] = float2(ssaoVal.z, packedEdges[x][y].z);
 				}
 				outputX += 1;
 				if (blurPasses <= outputX && outputX < TILE_WIDTH * BLUR_WIDTH - blurPasses)
 				{
-					g_BlurOutput[imageCoord + int2(4 * x + 3, y)] = ssaoVal.w;
+					g_BlurOutput[int3(imageCoord + int2(4 * x + 3, y), 0)] = float2(ssaoVal.w, packedEdges[x][y].w);
 				}
 			}
 		}
@@ -590,7 +574,14 @@ void CSEdgeSensitiveBlur8(uint2 tid : SV_GroupThreadID, uint2 gid : SV_GroupID)
 // =======================================================================================================
 // SSAO stuff
 
+Texture2DArray<float>    g_ViewspaceDepthSource      : register(t0);
+Texture1D<uint>          g_LoadCounter               : register(t2);
+Texture2D<float>         g_ImportanceMap             : register(t3);
+Texture2DArray           g_FinalSSAO                 : register(t4);
+Texture1D<float>         g_ZeroTexture               : register(t5);
+Texture2DArray           g_deinterlacedNormals       : register(t6);
 
+RWTexture2DArray<float2> g_SSAOOutput                : register(u0);
 
 
 // calculate effect radius and fit our screen sampling pattern inside it
@@ -628,19 +619,6 @@ float3 DecodeNormal(float3 encodedNormal)
 	return normal;
 }
 
-float3 LoadNormal(int2 pos)
-{
-	// float3 encodedNormal = g_NormalmapSource.Load(int3(pos, 0)).xyz;
-	float3 encodedNormal = g_NormalmapSource.SampleLevel(g_PointClampSampler, (float2(pos)+0.5f) * g_CACAOConsts.OutputBufferInverseDimensions, 0).xyz;
-	return DecodeNormal(encodedNormal);
-}
-
-float3 LoadNormal(int2 pos, int2 offset)
-{
-	float3 encodedNormal = g_NormalmapSource.Load(int3(pos, 0), offset).xyz;
-	return DecodeNormal(encodedNormal);
-}
-
 // all vectors in viewspace
 float CalculatePixelObscurance(float3 pixelNormal, float3 hitDelta, float falloffCalcMulSq)
 {
@@ -655,7 +633,7 @@ float CalculatePixelObscurance(float3 pixelNormal, float3 hitDelta, float fallof
 void SSAOTapInner(const int qualityLevel, inout float obscuranceSum, inout float weightSum, const float2 samplingUV, const float mipLevel, const float3 pixCenterPos, const float3 negViewspaceDir, float3 pixelNormal, const float falloffCalcMulSq, const float weightMod, const int dbgTapIndex)
 {
 	// get depth at sample
-	float viewspaceSampleZ = g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, samplingUV.xy, mipLevel).x; // * g_CACAOConsts.MaxViewspaceDepth;
+	float viewspaceSampleZ = g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, float3(samplingUV.xy, 0.0f), mipLevel).x; // * g_CACAOConsts.MaxViewspaceDepth;
 
 	// convert to viewspace
 	// float3 hitPos = NDCToViewspace(samplingUV.xy, viewspaceSampleZ).xyz;
@@ -746,10 +724,10 @@ SSAOHits SSAOGetHits(const int qualityLevel, const float2 depthBufferUV, const i
 	float mipLevel = (qualityLevel < SSAO_DEPTH_MIPS_ENABLE_AT_QUALITY_PRESET) ? (0) : (samplePow2Len + mipOffset);
 
 	float2 sampleUV = depthBufferUV + sampleOffset;
-	result.hits[0] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, sampleUV, mipLevel).x);
+	result.hits[0] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, float3(sampleUV, 0.0f), mipLevel).x);
 
 	sampleUV = depthBufferUV - sampleOffset;
-	result.hits[1] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, sampleUV, mipLevel).x);
+	result.hits[1] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, float3(sampleUV, 0.0f), mipLevel).x);
 
 	return result;
 }
@@ -783,9 +761,9 @@ SSAOHits SSAOGetHits2(SSAOSampleData data, const float2 depthBufferUV)
 	SSAOHits result;
 	result.weightMod = data.weightMod;
 	float2 sampleUV = depthBufferUV + data.uvOffset;
-	result.hits[0] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, sampleUV, data.mipLevel).x);
+	result.hits[0] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, float3(sampleUV, 0.0f), data.mipLevel).x);
 	sampleUV = depthBufferUV - data.uvOffset;
-	result.hits[1] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, sampleUV, data.mipLevel).x);
+	result.hits[1] = float3(sampleUV, g_ViewspaceDepthSource.SampleLevel(g_ViewspaceDepthTapSampler, float3(sampleUV, 0.0f), data.mipLevel).x);
 	return result;
 }
 
@@ -831,11 +809,11 @@ void GenerateSSAOShadowsInternal(out float outShadowTerm, out float4 outEdges, o
 	float pixZ, pixLZ, pixTZ, pixRZ, pixBZ;
 
 	float2 depthBufferUV = (SVPos + 0.5f) * g_CACAOConsts.DeinterleavedDepthBufferInverseDimensions + g_CACAOConsts.DeinterleavedDepthBufferNormalisedOffset;
-	float4 valuesUL = g_ViewspaceDepthSource.GatherRed(g_PointMirrorSampler, depthBufferUV, int2(-1, -1));
-	float4 valuesBR = g_ViewspaceDepthSource.GatherRed(g_PointMirrorSampler, depthBufferUV);
+	float4 valuesUL = g_ViewspaceDepthSource.GatherRed(g_PointMirrorSampler, float3(depthBufferUV, 0.0f), int2(-1, -1));
+	float4 valuesBR = g_ViewspaceDepthSource.GatherRed(g_PointMirrorSampler, float3(depthBufferUV, 0.0f));
 
 	// get this pixel's viewspace depth
-	pixZ = valuesUL.y; //float pixZ = g_ViewspaceDepthSource.SampleLevel( g_PointMirrorSampler, normalizedScreenPos, 0.0 ).x; // * g_CACAOConsts.MaxViewspaceDepth;
+	pixZ = valuesUL.y; //float pixZ = g_ViewspaceDepthSource.SampleLevel( g_PointMirrorSampler, float3(normalizedScreenPos, 0.0f), 0.0 ).x; // * g_CACAOConsts.MaxViewspaceDepth;
 
 	// get left right top bottom neighbouring pixels for edge detection (gets compiled out on qualityLevel == 0)
 	pixLZ = valuesUL.x;
@@ -849,9 +827,8 @@ void GenerateSSAOShadowsInternal(out float outShadowTerm, out float4 outEdges, o
 
 	// Load this pixel's viewspace normal
 	// uint2 fullResCoord = 2 * (SVPosui * 2 + g_CACAOConsts.PerPassFullResCoordOffset.xy);
-	// float3 pixelNormal = LoadNormal(fullResCoord);
 	int3 normalCoord = int3(SVPosui, g_CACAOConsts.PassIndex);
-	float3 pixelNormal = g_deinterlacedNormals[normalCoord];
+	float3 pixelNormal = g_deinterlacedNormals[normalCoord].xyz;
 
 	// optimized approximation of:  float2 pixelDirRBViewspaceSizeAtCenterZ = NDCToViewspace( normalizedScreenPos.xy + g_CACAOConsts._ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
 	// const float2 pixelDirRBViewspaceSizeAtCenterZ = pixCenterPos.z * g_CACAOConsts.NDCToViewMul * g_CACAOConsts.Viewport2xPixelSize;
@@ -930,17 +907,10 @@ void GenerateSSAOShadowsInternal(out float outShadowTerm, out float4 outEdges, o
 	// Sharp normals also create edges - but this adds to the cost as well
 	if (!adaptiveBase && (qualityLevel >= SSAO_NORMAL_BASED_EDGES_ENABLE_AT_QUALITY_PRESET))
 	{
-		/*
-		float3 neighbourNormalL = LoadNormal(fullResCoord, int2(-2, 0));
-		float3 neighbourNormalR = LoadNormal(fullResCoord, int2(2, 0));
-		float3 neighbourNormalT = LoadNormal(fullResCoord, int2(0, -2));
-		float3 neighbourNormalB = LoadNormal(fullResCoord, int2(0, 2));
-		*/
-
-		float3 neighbourNormalL = g_deinterlacedNormals[normalCoord + int3(-1, +0, 0)];
-		float3 neighbourNormalR = g_deinterlacedNormals[normalCoord + int3(+1, +0, 0)];
-		float3 neighbourNormalT = g_deinterlacedNormals[normalCoord + int3(+0, -1, 0)];
-		float3 neighbourNormalB = g_deinterlacedNormals[normalCoord + int3(+0, +1, 0)];
+		float3 neighbourNormalL = g_deinterlacedNormals[normalCoord + int3(-1, +0, 0)].xyz;
+		float3 neighbourNormalR = g_deinterlacedNormals[normalCoord + int3(+1, +0, 0)].xyz;
+		float3 neighbourNormalT = g_deinterlacedNormals[normalCoord + int3(+0, -1, 0)].xyz;
+		float3 neighbourNormalB = g_deinterlacedNormals[normalCoord + int3(+0, +1, 0)].xyz;
 		
 
 		const float dotThreshold = SSAO_NORMAL_BASED_EDGES_DOT_THRESHOLD;
@@ -1145,7 +1115,7 @@ void CSGenerateQ0(uint2 coord : SV_DispatchThreadID)
 	float2 out0;
 	out0.x = outShadowTerm;
 	out0.y = PackEdges(float4(1, 1, 1, 1)); // no edges in low quality
-	g_SSAOOutput[coord] = out0;
+	g_SSAOOutput[uint3(coord, 0)] = out0;
 }
 
 [numthreads(GENERATE_WIDTH, GENERATE_HEIGHT, 1)]
@@ -1159,7 +1129,7 @@ void CSGenerateQ1(uint2 coord : SV_DispatchThreadID)
 	float2 out0;
 	out0.x = outShadowTerm;
 	out0.y = PackEdges(outEdges);
-	g_SSAOOutput[coord] = out0;
+	g_SSAOOutput[uint3(coord, 0)] = out0;
 }
 
 [numthreads(GENERATE_WIDTH, GENERATE_HEIGHT, 1)]
@@ -1173,7 +1143,7 @@ void CSGenerateQ2(uint2 coord : SV_DispatchThreadID)
 	float2 out0;
 	out0.x = outShadowTerm;
 	out0.y = PackEdges(outEdges);
-	g_SSAOOutput[coord] = out0;
+	g_SSAOOutput[uint3(coord, 0)] = out0;
 }
 
 [numthreads(GENERATE_WIDTH, GENERATE_HEIGHT, 1)]
@@ -1187,7 +1157,7 @@ void CSGenerateQ3Base(uint2 coord : SV_DispatchThreadID)
 	float2 out0;
 	out0.x = outShadowTerm;
 	out0.y = outWeight / ((float)SSAO_ADAPTIVE_TAP_BASE_COUNT * 4.0); //0.0; //frac(outWeight / 6.0);// / (float)(SSAO_MAX_TAPS * 4.0);
-	g_SSAOOutput[coord] = out0;
+	g_SSAOOutput[uint3(coord, 0)] = out0;
 }
 
 [numthreads(GENERATE_WIDTH, GENERATE_HEIGHT, 1)]
@@ -1202,7 +1172,7 @@ void CSGenerateQ3(uint2 coord : SV_DispatchThreadID)
 	float2 out0;
 	out0.x = outShadowTerm;
 	out0.y = PackEdges(outEdges);
-	g_SSAOOutput[coord] = out0;
+	g_SSAOOutput[uint3(coord, 0)] = out0;
 }
 
 
@@ -1210,6 +1180,10 @@ void CSGenerateQ3(uint2 coord : SV_DispatchThreadID)
 
 // =======================================================
 // Apply
+
+Texture2DArray     g_ApplyFinalSSAO : register(t0);
+RWTexture2D<float> g_ApplyOutput    : register(u0);
+
 
 [numthreads(APPLY_WIDTH, APPLY_HEIGHT, 1)]
 void CSApply(uint2 coord : SV_DispatchThreadID)
@@ -1255,8 +1229,8 @@ void CSApply(uint2 coord : SV_DispatchThreadID)
 	// reduce weight for samples near edge - if the edge is on both sides, weight goes to 0
 	float4 blendWeights;
 	blendWeights.x = 1.0;
-	blendWeights.y = (edgesLRTB.x + edgesLRTB.y) * 0.75;
-	blendWeights.z = (edgesLRTB.z + edgesLRTB.w) * 0.75;
+	blendWeights.y = (edgesLRTB.x + edgesLRTB.y) * 0.5;
+	blendWeights.z = (edgesLRTB.z + edgesLRTB.w) * 0.5;
 	blendWeights.w = (blendWeights.y + blendWeights.z) * 0.5;
 
 	// calculate weighted average
@@ -1298,19 +1272,13 @@ void CSNonSmartHalfApply(uint2 tid : SV_DispatchThreadID)
 
 Texture2D<float>          g_DepthIn    : register(t0);
 
-RWTexture2D<float>        g_DepthOut0  : register(u0);
-RWTexture2D<float>        g_DepthOut1  : register(u1);
-RWTexture2D<float>        g_DepthOut2  : register(u2);
-RWTexture2D<float>        g_DepthOut3  : register(u3);
-RWTexture2D<unorm float4> g_NormalsOut : register(u4);
-
 groupshared uint s_PrepareMem[10][18];
 
 
 min16float ScreenSpaceToViewSpaceDepth(min16float screenDepth)
 {
-	float depthLinearizeMul = g_CACAOConsts.DepthUnpackConsts.x;
-	float depthLinearizeAdd = g_CACAOConsts.DepthUnpackConsts.y;
+	min16float depthLinearizeMul = min16float(g_CACAOConsts.DepthUnpackConsts.x);
+	min16float depthLinearizeAdd = min16float(g_CACAOConsts.DepthUnpackConsts.y);
 
 	// Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
 
@@ -1323,8 +1291,8 @@ min16float ScreenSpaceToViewSpaceDepth(min16float screenDepth)
 
 min16float4 ScreenSpaceToViewSpaceDepth4x(min16float4 screenDepths)
 {
-	float depthLinearizeMul = g_CACAOConsts.DepthUnpackConsts.x;
-	float depthLinearizeAdd = g_CACAOConsts.DepthUnpackConsts.y;
+	min16float depthLinearizeMul = min16float(g_CACAOConsts.DepthUnpackConsts.x);
+	min16float depthLinearizeAdd = min16float(g_CACAOConsts.DepthUnpackConsts.y);
 
 	// Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
 
@@ -1342,16 +1310,25 @@ RWTexture2DArray<float> g_PrepareDepthsAndMips_OutMip3 : register(u3);
 
 groupshared float s_PrepareDepthsAndMipsBuffer[4][8][8];
 
-min16float MipSmartAverage(min16float4 depths)
+float MipSmartAverage(float4 depths)
 {
-	min16float closest = min(min(depths.x, depths.y), min(depths.z, depths.w));
-	min16float falloffCalcMulSq = -1.0f / g_CACAOConsts.EffectRadius * g_CACAOConsts.EffectRadius;
-	min16float4 dists = depths - closest.xxxx;
-	min16float4 weights = saturate(dists * dists * falloffCalcMulSq + 1.0);
+	float closest = min(min(depths.x, depths.y), min(depths.z, depths.w));
+	float falloffCalcMulSq = -1.0f / g_CACAOConsts.EffectRadius * g_CACAOConsts.EffectRadius;
+	float4 dists = depths - closest.xxxx;
+	float4 weights = saturate(dists * dists * falloffCalcMulSq + 1.0);
 	return dot(weights, depths) / dot(weights, float4(1.0, 1.0, 1.0, 1.0));
 }
 
-void PrepareDepthsAndMips(float4 samples, int2 outputCoord, uint2 gtid)
+min16float MipSmartAverage_16(min16float4 depths)
+{
+	min16float closest = min(min(depths.x, depths.y), min(depths.z, depths.w));
+	min16float falloffCalcMulSq = min16float(-1.0f / g_CACAOConsts.EffectRadius * g_CACAOConsts.EffectRadius);
+	min16float4 dists = depths - closest.xxxx;
+	min16float4 weights = saturate(dists * dists * falloffCalcMulSq + 1.0);
+	return dot(weights, depths) / dot(weights, min16float4(1.0, 1.0, 1.0, 1.0));
+}
+
+void PrepareDepthsAndMips(float4 samples, uint2 outputCoord, uint2 gtid)
 {
 	samples = ScreenSpaceToViewSpaceDepth(samples);
 
@@ -1365,11 +1342,12 @@ void PrepareDepthsAndMips(float4 samples, int2 outputCoord, uint2 gtid)
 	g_PrepareDepthsAndMips_OutMip0[int3(outputCoord.x, outputCoord.y, 2)] = samples.x;
 	g_PrepareDepthsAndMips_OutMip0[int3(outputCoord.x, outputCoord.y, 3)] = samples.y;
 
-	int depthArrayIndex = 2 * (gtid.y % 2) + (gtid.x % 2);
-	int2 depthArrayOffset = int2(gtid.x % 2, gtid.y % 2);
-	int2 bufferCoord = gtid - depthArrayOffset;
+	uint depthArrayIndex = 2 * (gtid.y % 2) + (gtid.x % 2);
+	uint2 depthArrayOffset = int2(gtid.x % 2, gtid.y % 2);
+	int2 bufferCoord = int2(gtid) - int2(depthArrayOffset);
 
 	outputCoord /= 2;
+	GroupMemoryBarrierWithGroupSync();
 
 	// if (stillAlive) <-- all threads alive here
 	{
@@ -1425,10 +1403,17 @@ void CSPrepareDownsampledDepthsAndMips(uint2 tid : SV_DispatchThreadID, uint2 gt
 
 	float2 uv = (float2(depthBufferCoord)+0.5f) * g_CACAOConsts.DepthBufferInverseDimensions;
 	float4 samples;
-	samples.x = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 2));
-	samples.y = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 2));
-	samples.z = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 0));
-	samples.w = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 0));
+#if 1
+	samples.x = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 2));
+	samples.y = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 2));
+	samples.z = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 0));
+	samples.w = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 0));
+#else
+	samples.x = g_DepthIn[depthBufferCoord + uint2(0, 2)];
+	samples.y = g_DepthIn[depthBufferCoord + uint2(2, 2)];
+	samples.z = g_DepthIn[depthBufferCoord + uint2(2, 0)];
+	samples.w = g_DepthIn[depthBufferCoord + uint2(0, 0)];
+#endif
 
 	PrepareDepthsAndMips(samples, outputCoord, gtid);
 }
@@ -1440,7 +1425,7 @@ void CSPrepareNativeDepthsAndMips(uint2 tid : SV_DispatchThreadID, uint2 gtid : 
 	int2 outputCoord = tid;
 
 	float2 uv = (float2(depthBufferCoord)+0.5f) * g_CACAOConsts.DepthBufferInverseDimensions;
-	float4 samples = g_DepthSource.GatherRed(g_PointClampSampler, uv);
+	float4 samples = g_DepthIn.GatherRed(g_PointClampSampler, uv);
 
 	PrepareDepthsAndMips(samples, outputCoord, gtid);
 }
@@ -1463,10 +1448,10 @@ void CSPrepareDownsampledDepths(uint2 tid : SV_DispatchThreadID)
 
 	float2 uv = (float2(depthBufferCoord)+0.5f) * g_CACAOConsts.DepthBufferInverseDimensions;
 	float4 samples;
-	samples.x = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 2));
-	samples.y = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 2));
-	samples.z = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 0));
-	samples.w = g_DepthSource.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 0));
+	samples.x = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 2));
+	samples.y = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 2));
+	samples.z = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(2, 0));
+	samples.w = g_DepthIn.SampleLevel(g_PointClampSampler, uv, 0, int2(0, 0));
 	
 	PrepareDepths(samples, tid);
 }
@@ -1477,7 +1462,7 @@ void CSPrepareNativeDepths(uint2 tid : SV_DispatchThreadID)
 	int2 depthBufferCoord = 2 * tid.xy;
 
 	float2 uv = (float2(depthBufferCoord)+0.5f) * g_CACAOConsts.DepthBufferInverseDimensions;
-	float4 samples = g_DepthSource.GatherRed(g_PointClampSampler, uv);
+	float4 samples = g_DepthIn.GatherRed(g_PointClampSampler, uv);
 
 	PrepareDepths(samples, tid);
 }
@@ -1485,8 +1470,8 @@ void CSPrepareNativeDepths(uint2 tid : SV_DispatchThreadID)
 [numthreads(PREPARE_DEPTHS_HALF_WIDTH, PREPARE_DEPTHS_HALF_HEIGHT, 1)]
 void CSPrepareDownsampledDepthsHalf(uint2 tid : SV_DispatchThreadID)
 {
-	float sample_00 = g_DepthSource.Load(int3(4 * tid.x + 0, 4 * tid.y + 0, 0));
-	float sample_11 = g_DepthSource.Load(int3(4 * tid.x + 2, 4 * tid.y + 2, 0));
+	float sample_00 = g_DepthIn.Load(int3(4 * tid.x + 0, 4 * tid.y + 0, 0));
+	float sample_11 = g_DepthIn.Load(int3(4 * tid.x + 2, 4 * tid.y + 2, 0));
 	sample_00 = ScreenSpaceToViewSpaceDepth(sample_00);
 	sample_11 = ScreenSpaceToViewSpaceDepth(sample_11);
 	g_PrepareDepthsOut[int3(tid.x, tid.y, 0)] = sample_00;
@@ -1496,30 +1481,15 @@ void CSPrepareDownsampledDepthsHalf(uint2 tid : SV_DispatchThreadID)
 [numthreads(PREPARE_DEPTHS_HALF_WIDTH, PREPARE_DEPTHS_HALF_HEIGHT, 1)]
 void CSPrepareNativeDepthsHalf(uint2 tid : SV_DispatchThreadID)
 {
-	float sample_00 = g_DepthSource.Load(int3(2 * tid.x + 0, 2 * tid.y + 0, 0));
-	float sample_11 = g_DepthSource.Load(int3(2 * tid.x + 1, 2 * tid.y + 1, 0));
+	float sample_00 = g_DepthIn.Load(int3(2 * tid.x + 0, 2 * tid.y + 0, 0));
+	float sample_11 = g_DepthIn.Load(int3(2 * tid.x + 1, 2 * tid.y + 1, 0));
 	sample_00 = ScreenSpaceToViewSpaceDepth(sample_00);
 	sample_11 = ScreenSpaceToViewSpaceDepth(sample_11);
 	g_PrepareDepthsOut[int3(tid.x, tid.y, 0)] = sample_00;
 	g_PrepareDepthsOut[int3(tid.x, tid.y, 3)] = sample_11;
 }
 
-RWTexture2DArray<float> g_PrepareDepthsNormalsAndMips_OutMip0   : register(u0);
-RWTexture2DArray<float> g_PrepareDepthsNormalsAndMips_OutMip1   : register(u1);
-RWTexture2DArray<float> g_PrepareDepthsNormalsAndMips_OutMip2   : register(u2);
-RWTexture2DArray<float> g_PrepareDepthsNormalsAndMips_OutMip3   : register(u3);
-RWTexture2D<float4>     g_PrepareDepthsNormalsAndMips_OutNormal : register(u4);
-
 groupshared float s_PrepareDepthsNormalsAndMipsBuffer[18][18];
-
-float MipSmartAverage(float4 depths)
-{
-	float closest = min(min(depths.x, depths.y), min(depths.z, depths.w));
-	float falloffCalcMulSq = -1.0f / g_CACAOConsts.EffectRadius * g_CACAOConsts.EffectRadius;
-	float4 dists = depths - closest.xxxx;
-	float4 weights = saturate(dists * dists * falloffCalcMulSq + 1.0);
-	return dot(weights, depths) / dot(weights, float4(1.0, 1.0, 1.0, 1.0));
-}
 
 RWTexture2DArray<float4> g_PrepareNormals_NormalOut : register(u0);
 
@@ -1648,7 +1618,6 @@ RWTexture2DArray<float4> g_PrepareNormalsFromNormalsOutput : register(u0);
 
 float3 PrepareNormalsFromInputNormalsLoadNormal(int2 pos)
 {
-	// float3 encodedNormal = g_NormalmapSource.Load(int3(pos, 0)).xyz;
 	float3 encodedNormal = g_PrepareNormalsFromNormalsInput.SampleLevel(g_PointClampSampler, (float2(pos)+0.5f) * g_CACAOConsts.OutputBufferInverseDimensions, 0).xyz;
 	return DecodeNormal(encodedNormal);
 }
@@ -1780,13 +1749,11 @@ void CSPostprocessImportanceMapB(uint2 tid : SV_DispatchThreadID)
 // ============================================================================================
 // bilateral upscale
 
-RWTexture2D<float>     g_BilateralUpscaleOutput : register(u0);
+RWTexture2D<float>     g_BilateralUpscaleOutput            : register(u0);
 
 Texture2DArray<float2> g_BilateralUpscaleInput             : register(t0);
-Texture2D<float>       g_BilateralUpscaleVerticalInput     : register(t0);
 
 Texture2D<float>       g_BilateralUpscaleDepth             : register(t1);
-Texture2D<float4>      g_BilateralUpscaleNormals           : register(t2);
 Texture2DArray<float>  g_BilateralUpscaleDownscaledDepth   : register(t3);
 
 
@@ -1797,7 +1764,7 @@ uint DoublePackFloat16(float v)
 }
 
 #define BILATERAL_UPSCALE_BUFFER_WIDTH  (BILATERAL_UPSCALE_WIDTH  + 4)
-#define BILATERAL_UPSCALE_BUFFER_HEIGHT (BILATERAL_UPSCALE_HEIGHT + 4)
+#define BILATERAL_UPSCALE_BUFFER_HEIGHT (BILATERAL_UPSCALE_HEIGHT + 4 + 4)
 
 struct BilateralBufferVal
 {
@@ -1828,7 +1795,7 @@ void BilateralUpscaleNxN(int2 tid, uint2 gtid, uint2 gid, const int width, const
 			BilateralBufferVal bufferVal;
 
 			float depth = g_BilateralUpscaleDownscaledDepth[depthArrayBufferCoord];
-			float ssaoVal = g_BilateralUpscaleInput.SampleLevel(g_PointClampSampler, float3((float2(ssaoArrayBufferCoord.xy) + 0.5f) * g_CACAOConsts.SSAOBufferInverseDimensions, ssaoArrayBufferCoord.z), 0);
+			float ssaoVal = g_BilateralUpscaleInput.SampleLevel(g_PointClampSampler, float3((float2(ssaoArrayBufferCoord.xy) + 0.5f) * g_CACAOConsts.SSAOBufferInverseDimensions, ssaoArrayBufferCoord.z), 0).x;
 
 			bufferVal.packedDepths = DoublePackFloat16(depth);
 			bufferVal.packedSsaoVals = DoublePackFloat16(ssaoVal);
@@ -1957,7 +1924,7 @@ void CSUpscaleBilateral5x5Half(int2 tid : SV_DispatchThreadID, uint2 gtid : SV_G
 
 			float depth = g_BilateralUpscaleDownscaledDepth[depthArrayBufferCoord];
 			// float ssaoVal = g_BilateralUpscaleInput.SampleLevel(g_PointClampSampler, float3((float2(ssaoArrayBufferCoord.xy) + 0.5f) * g_CACAOConsts.HalfViewportPixelSize, ssaoArrayBufferCoord.z), 0);
-			float ssaoVal = g_BilateralUpscaleInput.SampleLevel(g_PointClampSampler, float3((float2(ssaoArrayBufferCoord.xy) + 0.5f) * g_CACAOConsts.SSAOBufferInverseDimensions, ssaoArrayBufferCoord.z), 0);
+			float ssaoVal = g_BilateralUpscaleInput.SampleLevel(g_PointClampSampler, float3((float2(ssaoArrayBufferCoord.xy) + 0.5f) * g_CACAOConsts.SSAOBufferInverseDimensions, ssaoArrayBufferCoord.z), 0).x;
 
 			bufferVal.packedDepths = DoublePackFloat16(depth);
 			bufferVal.packedSsaoVals = DoublePackFloat16(ssaoVal);

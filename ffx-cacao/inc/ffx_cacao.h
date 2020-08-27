@@ -22,17 +22,22 @@
 
 #pragma once
 
-#ifndef FFX_CACAO_ENABLE_PROFILING
-#define FFX_CACAO_ENABLE_PROFILING 1
-#endif
+// In future it is planned that FidelityFX CACAO will allow SSAO generation at native resolution.
+// However, at the current time the performance/image quality trade off is poor, and further optimisation
+// work is being carried out. If you wish to experiment with native resolution SSAO generation enable this
+// flag. Integrating FidelityFX CACAO into games with native resolution enabled is currently not recommended.
+// #define FFX_CACAO_ENABLE_NATIVE_RESOLUTION
 
-#ifndef FFX_CACAO_ENABLE_D3D12
-#define FFX_CACAO_ENABLE_D3D12 1
-#endif
+// #define FFX_CACAO_ENABLE_PROFILING
+// #define FFX_CACAO_ENABLE_D3D12
+// #define FFX_CACAO_ENABLE_VULKAN
 
 #include <stdint.h>
-#if FFX_CACAO_ENABLE_D3D12
+#ifdef FFX_CACAO_ENABLE_D3D12
 #include <d3d12.h>
+#endif
+#ifdef FFX_CACAO_ENABLE_VULKAN
+#include <vulkan/vulkan.h>
 #endif
 
 typedef uint8_t FfxCacaoBool;
@@ -87,7 +92,7 @@ typedef struct FfxCacaoSettings {
 	float           temporalSupersamplingRadiusOffset; ///< [0.0, 2.0] Used to scale sampling kernel; If using temporal AA / supersampling, suggested to scale by ( 1.0f + (((frame%3)-1.0)/3.0)*0.1 ) or similar.
 	float           detailShadowStrength;              ///< [0.0, 5.0] Used for high-res detail AO using neighboring depth pixels: adds a lot of detail but also reduces temporal stability (adds aliasing).
 	FfxCacaoBool    generateNormals;                   ///< This option should be set to FFX_CACAO_TRUE if FidelityFX-CACAO should reconstruct a normal buffer from the depth buffer. It is required to be FFX_CACAO_TRUE if no normal buffer is provided.
-	float           bilateralSigmaSquared;             ///< [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving Gaussian blur term. Should be greater than 0.0. 
+	float           bilateralSigmaSquared;             ///< [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving Gaussian blur term. Should be greater than 0.0.
 	float           bilateralSimilarityDistanceSigma;  ///< [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving similarity weighting for neighbouring pixels. Should be greater than 0.0.
 } FfxCacaoSettings;
 
@@ -112,7 +117,7 @@ static const FfxCacaoSettings FFX_CACAO_DEFAULT_SETTINGS = {
 };
 
 
-#if FFX_CACAO_ENABLE_D3D12
+#ifdef FFX_CACAO_ENABLE_D3D12
 /**
 	A struct containing all of the data used by FidelityFX-CACAO.
 	A context corresponds to an ID3D12Device.
@@ -131,10 +136,55 @@ typedef struct FfxCacaoD3D12ScreenSizeInfo {
 	D3D12_SHADER_RESOURCE_VIEW_DESC   normalBufferSrvDesc;  ///< normal buffer D3D12_SHADER_RESOURCE_VIEW_DESC
 	ID3D12Resource                   *outputResource;       ///< pointer to output buffer ID3D12Resource
 	D3D12_UNORDERED_ACCESS_VIEW_DESC  outputUavDesc;        ///< output buffer D3D12_UNORDERED_ACCESS_VIEW_DESC
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	FfxCacaoBool                      useDownsampledSsao;   ///< Whether SSAO should be generated at native resolution or half resolution. It is recommended to enable this setting for improved performance.
+#endif
 } FfxCacaoD3D12ScreenSizeInfo;
 #endif
 
-#if FFX_CACAO_ENABLE_PROFILING
+#ifdef FFX_CACAO_ENABLE_VULKAN
+/**
+	A struct containing all of the data used by FidelityFX-CACAO.
+	A context corresponds to a VkDevice.
+*/
+typedef struct FfxCacaoVkContext FfxCacaoVkContext;
+
+/**
+	Miscellaneous flags for used for Vulkan context creation by FidelityFX-CACAO
+ */
+typedef enum FfxCacaoVkCreateFlagsBits {
+	FFX_CACAO_VK_CREATE_USE_16_BIT        = 0x00000001, ///< Flag controlling whether 16-bit optimisations are enabled in shaders.
+	FFX_CACAO_VK_CREATE_USE_DEBUG_MARKERS = 0x00000002, ///< Flag controlling whether debug markers should be used.
+	FFX_CACAO_VK_CREATE_NAME_OBJECTS      = 0x00000004, ///< Flag controlling whether Vulkan objects should be named.
+} FfxCacaoVkCreateFlagsBits;
+typedef uint32_t FfxCacaoVkCreateFlags;
+
+/**
+	The parameters for creating a context.
+*/
+typedef struct FfxCacaoVkCreateInfo {
+	VkPhysicalDevice                 physicalDevice; ///< The VkPhysicalDevice corresponding to the VkDevice in use
+	VkDevice                         device;         ///< The VkDevice to use FFX CACAO with
+	FfxCacaoVkCreateFlags            flags;          ///< Miscellaneous flags for context creation
+} FfxCacaoVkCreateInfo;
+
+/**
+	The parameters necessary when changing the screen size of FidelityFX CACAO.
+*/
+typedef struct FfxCacaoVkScreenSizeInfo {
+	uint32_t                          width;                ///< width of the input/output buffers
+	uint32_t                          height;               ///< height of the input/output buffers
+	VkImageView                       depthView;            ///< An image view for the depth buffer, should be in layout VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL when used with FFX CACAO
+	VkImageView                       normalsView;          ///< An optional image view for the normal buffer (may be VK_NULL_HANDLE). Should be in layout VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL when used with FFX CACAO
+	VkImage                           output;               ///< An image for writing output from FFX CACAO, must have the same dimensions as the input
+	VkImageView                       outputView;           ///< An image view corresponding to the output image.
+#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
+	FfxCacaoBool                      useDownsampledSsao;   ///< Whether SSAO should be generated at native resolution or half resolution. It is recommended to enable this setting for improved performance.
+#endif
+} FfxCacaoVkScreenSizeInfo;
+#endif
+
+#ifdef FFX_CACAO_ENABLE_PROFILING
 /**
 	A timestamp. The label gives the name of the stage of the effect, and the ticks is the number of GPU ticks spent on that stage.
 */
@@ -158,7 +208,7 @@ extern "C"
 {
 #endif
 
-#if FFX_CACAO_ENABLE_D3D12
+#ifdef FFX_CACAO_ENABLE_D3D12
 	/**
 		Gets the size in bytes required by a context. This is to be used to allocate space for the context.
 		For example:
@@ -201,10 +251,9 @@ extern "C"
 
 		\param context A pointer to the FfxCacaoD3D12Context.
 		\param info A pointer to an FfxCacaoD3D12ScreenSizeInfo struct containing screen size info.
-		\param useDownsampledSsao Whether or not the SSAO should be generated on a downsampled texture. This results in lower quality but significantly faster performance. This setting is recommended.
 		\return The corresponding error code.
 	*/
-	FfxCacaoStatus ffxCacaoD3D12InitScreenSizeDependentResources(FfxCacaoD3D12Context* context, const FfxCacaoD3D12ScreenSizeInfo* info, FfxCacaoBool useDownsampledSsao);
+	FfxCacaoStatus ffxCacaoD3D12InitScreenSizeDependentResources(FfxCacaoD3D12Context* context, const FfxCacaoD3D12ScreenSizeInfo* info);
 
 	/**
 		Destroys screen size dependent resources for the FfxCacaoD3D12Context.
@@ -243,6 +292,93 @@ extern "C"
 		\result The corresponding error code.
 	*/
 	FfxCacaoStatus ffxCacaoD3D12GetDetailedTimings(FfxCacaoD3D12Context* context, FfxCacaoDetailedTiming* timings);
+#endif
+#endif
+
+#ifdef FFX_CACAO_ENABLE_VULKAN
+	/**
+		Gets the size in bytes required by a Vulkan context. This is to be used to allocate space for the context.
+		For example:
+
+		\code{.cpp}
+		size_t ffxCacaoVkContextSize = ffxCacaoVkGetContextSize();
+		FfxCacaoVkContext *context = (FfxCacaoVkContext*)malloc(ffxCacaoVkGetContextSize);
+
+		// ...
+
+		ffxCacaoVkDestroyContext(context);
+		free(context);
+		\endcode
+
+		\return The size in bytes of an FfxCacaoVkContext.
+	*/
+	size_t ffxCacaoVkGetContextSize();
+
+	/**
+		Initialises an FfxCacaoVkContext.
+
+		\param context A pointer to the context to initialise.
+		\param info A pointer to an FfxCacaoVkCreateInfo struct with parameters such as the vulkan device.
+		\return The corresponding error code.
+	*/
+	FfxCacaoStatus ffxCacaoVkInitContext(FfxCacaoVkContext* context, const FfxCacaoVkCreateInfo *info);
+
+	/**
+		Destroys an FfxCacaoVkContext.
+
+		\param context A pointer to the context to be destroyed.
+		\return The corresponding error code.
+
+		\note This function does not destroy screen size dependent resources, and must be called after ffxCacaoVkDestroyScreenSizeDependentResources.
+	*/
+	FfxCacaoStatus ffxCacaoVkDestroyContext(FfxCacaoVkContext* context);
+
+	/**
+		Initialises screen size dependent resources for the FfxCacaoVkContext.
+
+		\param context A pointer to the FfxCacaoVkContext.
+		\param info A pointer to an FfxCacaoVkScreenSizeInfo struct containing screen size info.
+		\return The corresponding error code.
+	*/
+	FfxCacaoStatus ffxCacaoVkInitScreenSizeDependentResources(FfxCacaoVkContext* context, const FfxCacaoVkScreenSizeInfo* info);
+
+	/**
+		Destroys screen size dependent resources for the FfxCacaoVkContext.
+
+		\param context A pointer to the FfxCacaoVkContext.
+		\return The corresponding error code.
+	*/
+	FfxCacaoStatus ffxCacaoVkDestroyScreenSizeDependentResources(FfxCacaoVkContext* context);
+
+	/**
+		Update the settings of the FfxCacaoVkContext to those stored in the FfxCacaoSettings struct.
+
+		\param context A pointer to the FfxCacaoVkContext to update.
+		\param settings A pointer to the FfxCacaoSettings struct containing the new settings.
+		\return The corresponding error code.
+	*/
+	FfxCacaoStatus ffxCacaoVkUpdateSettings(FfxCacaoVkContext* context, const FfxCacaoSettings* settings);
+
+	/**
+		Append commands for drawing FFX CACAO to the provided VkCommandBuffer.
+
+		\param context A pointer to the FfxCacaoVkContext.
+		\param commandList The VkCommandBuffer to append commands to.
+		\param proj A pointer to the projection matrix.
+		\param normalsToView An optional pointer to a matrix for transforming normals to in the normal buffer to viewspace.
+		\return The corresponding error code.
+	*/
+	FfxCacaoStatus ffxCacaoVkDraw(FfxCacaoVkContext* context, VkCommandBuffer commandList, const FfxCacaoMatrix4x4* proj, const FfxCacaoMatrix4x4* normalsToView);
+
+#ifdef FFX_CACAO_ENABLE_PROFILING
+	/**
+		Get detailed performance timings from the previous frame.
+
+		\param context A pointer to the FfxCacaoVkContext.
+		\param timings A pointer to an FfxCacaoDetailedTiming struct to fill in with detailed timings.
+		\result The corresponding error code.
+	*/
+	FfxCacaoStatus ffxCacaoVkGetDetailedTimings(FfxCacaoVkContext* context, FfxCacaoDetailedTiming* timings);
 #endif
 #endif
 
