@@ -1,6 +1,6 @@
 // AMD SampleVK sample code
-// 
-// Copyright(c) 2018 Advanced Micro Devices, Inc.All rights reserved.
+//
+// Copyright(c) 2021 Advanced Micro Devices, Inc.All rights reserved.
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files(the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
@@ -19,17 +19,17 @@
 
 #include "stdafx.h"
 
-#include "FFX_CACAO_Sample.h"
-#include "FFX_CACAO_Common.h"
+#include "Sample.h"
+#include "Common.h"
 
-FfxCacaoSample::FfxCacaoSample(LPCSTR name) : FrameworkWindows(name)
+Sample::Sample(LPCSTR name) : FrameworkWindows(name)
 {
-    m_lastFrameTime = MillisecondsNow();
-    m_time = 0;
-    m_bPlay = true;
+	m_lastFrameTime = MillisecondsNow();
+	m_time = 0;
+	m_bPlay = true;
 
-    m_pGltfLoader = NULL;
-    m_currentDisplayMode = DISPLAYMODE_SDR;
+	m_pGltfLoader = NULL;
+	m_currentDisplayMode = DISPLAYMODE_SDR;
 }
 
 //--------------------------------------------------------------------------------------
@@ -37,7 +37,7 @@ FfxCacaoSample::FfxCacaoSample(LPCSTR name) : FrameworkWindows(name)
 // OnParseCommandLine
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint32_t* pHeight, bool *pbFullScreen)
+void Sample::OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint32_t* pHeight, bool *pbFullScreen)
 {
 	// set some default values
 	*pWidth = 1920;
@@ -68,7 +68,7 @@ void FfxCacaoSample::OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint3
 	// read config file (and override values from commandline if so)
 	//
 	{
-		std::ifstream f("FFX_CACAO_Sample.json");
+		std::ifstream f("SampleSettings.json");
 		if (!f)
 		{
 			MessageBox(NULL, "Config file not found!\n", "Cauldron Panic!", MB_ICONERROR);
@@ -89,7 +89,7 @@ void FfxCacaoSample::OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint3
 
 	json globals = m_jsonConfigFile["globals"];
 	process(globals);
-	
+
 	// get the list of scenes
 	for (const auto & scene : m_jsonConfigFile["scenes"])
 		m_sceneNames.push_back(scene["name"]);
@@ -113,18 +113,12 @@ void FfxCacaoSample::OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint3
 #ifdef FFX_CACAO_ENABLE_PROFILING
 	if (m_isBenchmarking)
 	{
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
 		bool downsampled = FFX_CACAO_PRESETS[m_presetIndex].useDownsampledSsao;
-#endif
 		uint32_t quality = FFX_CACAO_PRESETS[m_presetIndex].settings.qualityLevel;
 		m_benchmarkScreenWidth = *pWidth;
 		m_benchmarkScreenHeight = *pHeight;
 		m_benchmarkWarmUpFramesToRun = 100;
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
 		snprintf(m_benchmarkFilename, _countof(m_benchmarkFilename), "FFX_CACAO_Vulkan_Benchmark_%s_%ux%u_Q%u.csv", downsampled ? "downsampled" : "native", *pWidth, *pHeight, quality);
-#else
-		snprintf(m_benchmarkFilename, _countof(m_benchmarkFilename), "FFX_CACAO_Vulkan_Benchmark_downsampled_%ux%u_Q%u.csv", *pWidth, *pHeight, quality);
-#endif
 		m_vsyncEnabled = false;
 		m_isGpuValidationLayerEnabled = false;
 		m_isCpuValidationLayerEnabled = false;
@@ -138,60 +132,58 @@ void FfxCacaoSample::OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint3
 // OnCreate
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::OnCreate(HWND hWnd)
+void Sample::OnCreate(HWND hWnd)
 {
-    // Create Device
-    //
-    m_device.OnCreate("myapp", "myEngine", m_isCpuValidationLayerEnabled, m_isGpuValidationLayerEnabled, hWnd);
-    m_device.CreatePipelineCache();
-	
+	// Create Device
+	//
+	m_device.OnCreate("FfxCacaoSample", "Cauldron", m_isCpuValidationLayerEnabled, m_isGpuValidationLayerEnabled, hWnd);
+	m_device.CreatePipelineCache();
+
 	VkPhysicalDeviceProperties physicalDeviceProperties;
 	vkGetPhysicalDeviceProperties(m_device.GetPhysicalDevice(), &physicalDeviceProperties);
 	m_microsecondsPerGpuTick = 1e-3f * physicalDeviceProperties.limits.timestampPeriod;
 
-    //init the shader compiler
+	//init the shader compiler
 	InitDirectXCompiler();
-    CreateShaderCache();
+	CreateShaderCache();
 
-    // Create Swapchain
-    //
+	// Create Swapchain
+	//
 
 	uint32_t dwNumberOfBackBuffers = 2;
-    m_swapChain.OnCreate(&m_device, dwNumberOfBackBuffers, hWnd);
+	m_swapChain.OnCreate(&m_device, dwNumberOfBackBuffers, hWnd);
 
-    // Create a instance of the renderer and initialize it, we need to do that for each GPU
-    //
-    m_Node = new SampleRenderer();
-    m_Node->OnCreate(&m_device, &m_swapChain);
+	// Create a instance of the renderer and initialize it, we need to do that for each GPU
+	//
+	m_node = new SampleRenderer();
+	m_node->OnCreate(&m_device, &m_swapChain);
 
-    // init GUI (non gfx stuff)
-    //
-    ImGUI_Init((void *)hWnd);
+	// init GUI (non gfx stuff)
+	//
+	ImGUI_Init((void *)hWnd);
 
-    // Init Camera, looking at the origin
-    //
-    m_roll = 0.0f;
-    m_pitch = 0.0f;
-    m_distance = 3.5f;
+	// Init Camera, looking at the origin
+	//
+	m_roll = 0.0f;
+	m_pitch = 0.0f;
+	m_distance = 3.5f;
 
-    // init GUI state
-    m_state.toneMapper = 0;
-    m_state.m_useTAA = false; // no TAA in VK
-    m_state.skyDomeType = 0;
-    m_state.exposure = 1.0f;
-    m_state.iblFactor = 2.0f;
-    m_state.emmisiveFactor = 1.0f;
-    m_state.bDrawLightFrustum = false;
-    m_state.bDrawBoundingBoxes = false;
-    m_state.camera.LookAt(m_roll, m_pitch, m_distance, XMVectorSet(0, 0, 0, 0));
+	// init GUI state
+	m_state.toneMapper = 0;
+	m_state.useTAA = false; // no TAA in VK
+	m_state.skyDomeType = 0;
+	m_state.exposure = 1.0f;
+	m_state.iblFactor = 2.0f;
+	m_state.emmisiveFactor = 1.0f;
+	m_state.drawLightFrustum = false;
+	m_state.drawBoundingBoxes = false;
+	m_state.camera.LookAt(m_roll, m_pitch, m_distance, XMVectorSet(0, 0, 0, 0));
 
-	m_state.m_useCacao = true;
-	m_state.m_dispalyCacaoDirectly = true;
+	m_state.useCacao = true;
+	m_state.dispalyCacaoDirectly = true;
 
-	m_state.m_cacaoSettings = FFX_CACAO_PRESETS[m_presetIndex].settings;
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-	m_state.m_useDownsampledSsao = FFX_CACAO_PRESETS[m_presetIndex].useDownsampledSsao;
-#endif
+	m_state.cacaoSettings = FFX_CACAO_PRESETS[m_presetIndex].settings;
+	m_state.useDownsampledSsao = FFX_CACAO_PRESETS[m_presetIndex].useDownsampledSsao;
 }
 
 //--------------------------------------------------------------------------------------
@@ -199,39 +191,39 @@ void FfxCacaoSample::OnCreate(HWND hWnd)
 // OnDestroy
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::OnDestroy()
+void Sample::OnDestroy()
 {
 #ifdef FFX_CACAO_ENABLE_PROFILING
 	m_isBenchmarking = false;
 #endif
 
-    ImGUI_Shutdown();
+	ImGUI_Shutdown();
 
-    m_device.GPUFlush();
+	m_device.GPUFlush();
 
-    // Fullscreen state should always be false before exiting the app.
-    m_swapChain.SetFullScreen(false);
+	// Fullscreen state should always be false before exiting the app.
+	m_swapChain.SetFullScreen(false);
 
-    m_Node->UnloadScene();
-    m_Node->OnDestroyWindowSizeDependentResources();
-    m_Node->OnDestroy();
+	m_node->UnloadScene();
+	m_node->OnDestroyWindowSizeDependentResources();
+	m_node->OnDestroy();
 
-    delete m_Node;
+	delete m_node;
 
-    m_swapChain.OnDestroyWindowSizeDependentResources();
-    m_swapChain.OnDestroy();
+	m_swapChain.OnDestroyWindowSizeDependentResources();
+	m_swapChain.OnDestroy();
 
-    //shut down the shader compiler 
-    DestroyShaderCache(&m_device);
+	//shut down the shader compiler
+	DestroyShaderCache(&m_device);
 
-    if (m_pGltfLoader)
-    {
-        delete m_pGltfLoader;
-        m_pGltfLoader = NULL;
-    }
+	if (m_pGltfLoader)
+	{
+		delete m_pGltfLoader;
+		m_pGltfLoader = NULL;
+	}
 
-    m_device.DestroyPipelineCache();
-    m_device.OnDestroy();
+	m_device.DestroyPipelineCache();
+	m_device.OnDestroy();
 }
 
 //--------------------------------------------------------------------------------------
@@ -239,11 +231,11 @@ void FfxCacaoSample::OnDestroy()
 // OnEvent, win32 sends us events and we forward them to ImGUI
 //
 //--------------------------------------------------------------------------------------
-bool FfxCacaoSample::OnEvent(MSG msg)
+bool Sample::OnEvent(MSG msg)
 {
-    if (ImGUI_WndProcHandler(msg.hwnd, msg.message, msg.wParam, msg.lParam))
-        return true;
-    return true;
+	if (ImGUI_WndProcHandler(msg.hwnd, msg.message, msg.wParam, msg.lParam))
+		return true;
+	return true;
 }
 
 //--------------------------------------------------------------------------------------
@@ -251,16 +243,16 @@ bool FfxCacaoSample::OnEvent(MSG msg)
 // SetFullScreen
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::SetFullScreen(bool fullscreen)
+void Sample::SetFullScreen(bool fullscreen)
 {
-    m_device.GPUFlush();
+	m_device.GPUFlush();
 
 	if (!fullscreen)
 	{
 		m_currentDisplayMode = DISPLAYMODE_SDR;
 	}
 
-    m_swapChain.SetFullScreen(fullscreen);
+	m_swapChain.SetFullScreen(fullscreen);
 }
 
 //--------------------------------------------------------------------------------------
@@ -268,7 +260,7 @@ void FfxCacaoSample::SetFullScreen(bool fullscreen)
 // OnResize
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::OnResize(uint32_t width, uint32_t height, DisplayModes displayMode, bool force)
+void Sample::OnResize(uint32_t width, uint32_t height, DisplayModes displayMode, bool force)
 {
 #ifdef FFX_CACAO_ENABLE_PROFILING
 	if (m_isBenchmarking && !m_benchmarkWarmUpFramesToRun)
@@ -281,39 +273,39 @@ void FfxCacaoSample::OnResize(uint32_t width, uint32_t height, DisplayModes disp
 	}
 #endif
 
-    if (m_Width != width || m_Height != height || m_currentDisplayMode != displayMode || force)
-    {
-        // Flush GPU
-        //
-        m_device.GPUFlush();
+	if (m_Width != width || m_Height != height || m_currentDisplayMode != displayMode || force)
+	{
+		// Flush GPU
+		//
+		m_device.GPUFlush();
 
-        // If resizing but no minimizing
-        //
-        if (m_Width > 0 && m_Height > 0)
-        {
-            if (m_Node != NULL)
-            {
-                m_Node->OnDestroyWindowSizeDependentResources();
-            }
-            m_swapChain.OnDestroyWindowSizeDependentResources();
-        }
+		// If resizing but no minimizing
+		//
+		if (m_Width > 0 && m_Height > 0)
+		{
+			if (m_node != NULL)
+			{
+				m_node->OnDestroyWindowSizeDependentResources();
+			}
+			m_swapChain.OnDestroyWindowSizeDependentResources();
+		}
 
-        m_Width = width;
-        m_Height = height;
-        m_currentDisplayMode = displayMode;
+		m_Width = width;
+		m_Height = height;
+		m_currentDisplayMode = displayMode;
 
-        // if resizing but not minimizing the recreate it with the new size
-        //
-        if (m_Width > 0 && m_Height > 0)
-        {
-            m_swapChain.OnCreateWindowSizeDependentResources(m_Width, m_Height, m_vsyncEnabled, m_currentDisplayMode);
-            if (m_Node != NULL)
-            {
-                m_Node->OnCreateWindowSizeDependentResources(&m_swapChain, m_Width, m_Height);
-            }
-        }
-    }
-    m_state.camera.SetFov(XM_PI / 4, m_Width, m_Height, 0.1f, 1000.0f);
+		// if resizing but not minimizing the recreate it with the new size
+		//
+		if (m_Width > 0 && m_Height > 0)
+		{
+			m_swapChain.OnCreateWindowSizeDependentResources(m_Width, m_Height, m_vsyncEnabled, m_currentDisplayMode);
+			if (m_node != NULL)
+			{
+				m_node->OnCreateWindowSizeDependentResources(&m_swapChain, m_Width, m_Height);
+			}
+		}
+	}
+	m_state.camera.SetFov(XM_PI / 4, m_Width, m_Height, 0.1f, 1000.0f);
 }
 
 //--------------------------------------------------------------------------------------
@@ -321,20 +313,20 @@ void FfxCacaoSample::OnResize(uint32_t width, uint32_t height, DisplayModes disp
 // BuildUI, also loads the scene!
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::BuildUI()
+void Sample::BuildUI()
 {
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.FrameBorderSize = 1.0f;
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.FrameBorderSize = 1.0f;
 
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(250, 700), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(250, 700), ImGuiCond_FirstUseEver);
 
-    bool opened = true;
-    ImGui::Begin("CACAO Sample", &opened);
+	bool opened = true;
+	ImGui::Begin("CACAO Sample", &opened);
 
-    if (ImGui::CollapsingHeader("Sample Settings", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        ImGui::Text("Resolution       : %ix%i", m_Width, m_Height);
+	if (ImGui::CollapsingHeader("Sample Settings", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		ImGui::Text("Resolution       : %ix%i", m_Width, m_Height);
 		const char *cameraControls = "Orbit\0WASD\0";
 
 		ImGui::Combo("Camera", &m_cameraControlSelected, cameraControls);
@@ -343,7 +335,7 @@ void FfxCacaoSample::BuildUI()
 		{
 			OnResize(m_Width, m_Height, DISPLAYMODE_SDR, true);
 		}
-    }
+	}
 
 	if (m_requiresLoad)
 	{
@@ -353,12 +345,12 @@ void FfxCacaoSample::BuildUI()
 		// release everything and load the GLTF, just the light json data, the rest (textures and geometry) will be done in the main loop
 		if (m_pGltfLoader != NULL)
 		{
-			m_Node->UnloadScene();
-			m_Node->OnDestroyWindowSizeDependentResources();
-			m_Node->OnDestroy();
+			m_node->UnloadScene();
+			m_node->OnDestroyWindowSizeDependentResources();
+			m_node->OnDestroy();
 			m_pGltfLoader->Unload();
-			m_Node->OnCreate(&m_device, &m_swapChain);
-			m_Node->OnCreateWindowSizeDependentResources(&m_swapChain, m_Width, m_Height);
+			m_node->OnCreate(&m_device, &m_swapChain);
+			m_node->OnCreateWindowSizeDependentResources(&m_swapChain, m_Width, m_Height);
 		}
 
 		delete(m_pGltfLoader);
@@ -374,7 +366,7 @@ void FfxCacaoSample::BuildUI()
 			#define LOAD(j, key, val) val = j.value(key, val)
 
 			// global settings
-			LOAD(scene, "TAA", m_state.m_useTAA);
+			LOAD(scene, "TAA", m_state.useTAA);
 			LOAD(scene, "toneMapper", m_state.toneMapper);
 			LOAD(scene, "skyDomeType", m_state.skyDomeType);
 			LOAD(scene, "exposure", m_state.exposure);
@@ -435,14 +427,12 @@ void FfxCacaoSample::BuildUI()
 	{
 		if (ImGui::Combo("Preset", &m_presetIndex, FFX_CACAO_PRESET_NAMES, _countof(FFX_CACAO_PRESET_NAMES)) && m_presetIndex < _countof(FFX_CACAO_PRESETS))
 		{
-			FfxCacaoPreset preset = FFX_CACAO_PRESETS[m_presetIndex];
-			m_state.m_cacaoSettings = preset.settings;
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-			m_state.m_useDownsampledSsao = preset.useDownsampledSsao;
-#endif
+			Preset preset = FFX_CACAO_PRESETS[m_presetIndex];
+			m_state.cacaoSettings = preset.settings;
+			m_state.useDownsampledSsao = preset.useDownsampledSsao;
 		}
 
-		FfxCacaoSettings *settings = &m_state.m_cacaoSettings;
+		FFX_CACAO_Settings *settings = &m_state.cacaoSettings;
 		ImGui::SliderFloat("Radius", &settings->radius, 0.0f, 10.0f);
 		ImGui::SliderFloat("Shadow Multiplier", &settings->shadowMultiplier, 0.0f, 5.0f);
 		ImGui::SliderFloat("Shadow Power", &settings->shadowPower, 0.5f, 5.0f);
@@ -453,7 +443,7 @@ void FfxCacaoSample::BuildUI()
 		int qualityIndex = settings->qualityLevel;
 		char *qualityLevels = "Lowest\0Low\0Medium\0High\0Highest\0" ;
 		ImGui::Combo("Quality Level", &qualityIndex, qualityLevels);
-		settings->qualityLevel = (FfxCacaoQuality)qualityIndex;
+		settings->qualityLevel = (FFX_CACAO_Quality)qualityIndex;
 		if (settings->qualityLevel == FFX_CACAO_QUALITY_HIGHEST)
 		{
 			ImGui::SliderFloat("Adaptive Quality Level", &settings->adaptiveQualityLimit, 0.5f, 1.0f);
@@ -464,39 +454,33 @@ void FfxCacaoSample::BuildUI()
 		bool generateNormals = settings->generateNormals;
 		ImGui::Checkbox("Generate Normal Buffer From Depth Buffer", &generateNormals);
 		settings->generateNormals = generateNormals ? FFX_CACAO_TRUE : FFX_CACAO_FALSE;
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-		ImGui::Checkbox("Use Downsampled SSAO", &m_state.m_useDownsampledSsao);
-		if (m_state.m_useDownsampledSsao)
-#endif
+		ImGui::Checkbox("Use Downsampled SSAO", &m_state.useDownsampledSsao);
+		if (m_state.useDownsampledSsao)
 		{
 			ImGui::SliderFloat("Bilateral Sigma Squared", &settings->bilateralSigmaSquared, 0.0f, 10.0f);
 			ImGui::SliderFloat("Bilateral Similarity Distance Sigma", &settings->bilateralSimilarityDistanceSigma, 0.1f, 1.0f);
 		}
 
-		ImGui::Checkbox("Display FFX CACAO Output Directly", &m_state.m_dispalyCacaoDirectly);
-		if (!m_state.m_dispalyCacaoDirectly)
+		ImGui::Checkbox("Display FFX CACAO Output Directly", &m_state.dispalyCacaoDirectly);
+		if (!m_state.dispalyCacaoDirectly)
 		{
-			ImGui::Checkbox("Use FFX CACAO", &m_state.m_useCacao);
+			ImGui::Checkbox("Use FFX CACAO", &m_state.useCacao);
 		}
-		m_state.m_useCacao |= m_state.m_dispalyCacaoDirectly;
+		m_state.useCacao |= m_state.dispalyCacaoDirectly;
 
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-		if (m_presetIndex < _countof(FFX_CACAO_PRESETS) && (memcmp(&FFX_CACAO_PRESETS[m_presetIndex].settings, &m_state.m_cacaoSettings, sizeof(m_state.m_cacaoSettings)) || (FFX_CACAO_PRESETS[m_presetIndex].useDownsampledSsao != m_state.m_useDownsampledSsao)))
-#else
-		if (m_presetIndex < _countof(FFX_CACAO_PRESETS) && memcmp(&FFX_CACAO_PRESETS[m_presetIndex].settings, &m_state.m_cacaoSettings, sizeof(m_state.m_cacaoSettings)))
-#endif
+		if (m_presetIndex < _countof(FFX_CACAO_PRESETS) && (memcmp(&FFX_CACAO_PRESETS[m_presetIndex].settings, &m_state.cacaoSettings, sizeof(m_state.cacaoSettings)) || (FFX_CACAO_PRESETS[m_presetIndex].useDownsampledSsao != m_state.useDownsampledSsao)))
 		{
 			m_presetIndex = _countof(FFX_CACAO_PRESETS);
 		}
 	}
 
 #ifdef FFX_CACAO_ENABLE_PROFILING
-	if (m_state.m_useCacao && !m_vsyncEnabled)
+	if (m_state.useCacao && !m_vsyncEnabled && !m_isCpuValidationLayerEnabled && !m_isGpuValidationLayerEnabled)
 	{
 		if (ImGui::CollapsingHeader("Profiler", ImGuiTreeNodeFlags_DefaultOpen))
 		{
-			FfxCacaoDetailedTiming timings = {};
-			m_Node->GetCacaoTimingValues(&m_state, &timings);
+			FFX_CACAO_DetailedTiming timings = {};
+			m_node->GetCacaoTimingValues(&m_state, &timings);
 			for (uint32_t i = 0; i < timings.numTimestamps; ++i)
 			{
 				const char *name = timings.timestamps[i].label;
@@ -508,58 +492,58 @@ void FfxCacaoSample::BuildUI()
 	}
 	else
 	{
-		ImGui::CollapsingHeader("Profiler Disabled (enable CACAO and turn off vsync)");
+		ImGui::CollapsingHeader("Profiler Disabled (enable CACAO and turn off vsync and validation)");
 	}
 #endif
 
-    ImGui::End();
+	ImGui::End();
 
-    // Sets Camera based on UI selection (WASD, Orbit or any of the GLTF cameras)
-    //
-    ImGuiIO& io = ImGui::GetIO();
-    {
-        //If the mouse was not used by the GUI then it's for the camera
-        //
-        if (io.WantCaptureMouse)
-        {
-            io.MouseDelta.x = 0;
-            io.MouseDelta.y = 0;
-            io.MouseWheel = 0;
-        }
-        else if ((io.KeyCtrl == false) && (io.MouseDown[0] == true))
-        {
-            m_roll -= io.MouseDelta.x / 100.f;
-            m_pitch += io.MouseDelta.y / 100.f;
-        }
+	// Sets Camera based on UI selection (WASD, Orbit or any of the GLTF cameras)
+	//
+	ImGuiIO& io = ImGui::GetIO();
+	{
+		//If the mouse was not used by the GUI then it's for the camera
+		//
+		if (io.WantCaptureMouse)
+		{
+			io.MouseDelta.x = 0;
+			io.MouseDelta.y = 0;
+			io.MouseWheel = 0;
+		}
+		else if ((io.KeyCtrl == false) && (io.MouseDown[0] == true))
+		{
+			m_roll -= io.MouseDelta.x / 100.f;
+			m_pitch += io.MouseDelta.y / 100.f;
+		}
 
-        // Choose camera movement depending on setting
-        //
-        if (m_cameraControlSelected == 0)
-        {
-            //  Orbiting                
-            //
-            m_distance -= (float)io.MouseWheel / 3.0f;
-            m_distance = std::max<float>(m_distance, 0.1f);
+		// Choose camera movement depending on setting
+		//
+		if (m_cameraControlSelected == 0)
+		{
+			//  Orbiting
+			//
+			m_distance -= (float)io.MouseWheel / 3.0f;
+			m_distance = std::max<float>(m_distance, 0.1f);
 
-            bool panning = (io.KeyCtrl == true) && (io.MouseDown[0] == true);
+			bool panning = (io.KeyCtrl == true) && (io.MouseDown[0] == true);
 
-            m_state.camera.UpdateCameraPolar(m_roll, m_pitch, panning ? -io.MouseDelta.x / 100.0f : 0.0f, panning ? io.MouseDelta.y / 100.0f : 0.0f, m_distance);
-        }
-        else if (m_cameraControlSelected == 1)
-        {
-            //  WASD
-            //
-            m_state.camera.UpdateCameraWASD(m_roll, m_pitch, io.KeysDown, io.DeltaTime);
-        }
-        else if (m_cameraControlSelected > 1)
-        {
-            // Use a camera from the GLTF
-            // 
-            m_pGltfLoader->GetCamera(m_cameraControlSelected - 2, &m_state.camera);
-            m_roll = m_state.camera.GetYaw();
-            m_pitch = m_state.camera.GetPitch();
-        }
-    }
+			m_state.camera.UpdateCameraPolar(m_roll, m_pitch, panning ? -io.MouseDelta.x / 100.0f : 0.0f, panning ? io.MouseDelta.y / 100.0f : 0.0f, m_distance);
+		}
+		else if (m_cameraControlSelected == 1)
+		{
+			//  WASD
+			//
+			m_state.camera.UpdateCameraWASD(m_roll, m_pitch, io.KeysDown, io.DeltaTime);
+		}
+		else if (m_cameraControlSelected > 1)
+		{
+			// Use a camera from the GLTF
+			//
+			m_pGltfLoader->GetCamera(m_cameraControlSelected - 2, &m_state.camera);
+			m_roll = m_state.camera.GetYaw();
+			m_pitch = m_state.camera.GetPitch();
+		}
+	}
 }
 
 //--------------------------------------------------------------------------------------
@@ -567,39 +551,39 @@ void FfxCacaoSample::BuildUI()
 // OnRender, updates the state from the UI, animates, transforms and renders the scene
 //
 //--------------------------------------------------------------------------------------
-void FfxCacaoSample::OnRender()
+void Sample::OnRender()
 {
-    // Get timings
-    //
-    double timeNow = MillisecondsNow();
-    float deltaTime = (m_timeStep == 0.0f) ? (float)(timeNow - m_lastFrameTime) : m_timeStep;
-    m_lastFrameTime = timeNow;
+	// Get timings
+	//
+	double timeNow = MillisecondsNow();
+	float deltaTime = (m_timeStep == 0.0f) ? (float)(timeNow - m_lastFrameTime) : m_timeStep;
+	m_lastFrameTime = timeNow;
 
-    // Set animation time
-    //
-    if (m_bPlay)
-    {
-        m_time += (float)deltaTime / 1000.0f;
-    }
+	// Set animation time
+	//
+	if (m_bPlay)
+	{
+		m_time += (float)deltaTime / 1000.0f;
+	}
 
-    ImGUI_UpdateIO();
-    ImGui::NewFrame();
+	ImGUI_UpdateIO();
+	ImGui::NewFrame();
 
-    if (m_loadingScene)
-    {
-        // the scene loads in chuncks, that way we can show a progress bar
-        static int loadingStage = 0;
-        loadingStage = m_Node->LoadScene(m_pGltfLoader, loadingStage);
-        if (loadingStage == 0)
-        {
-            m_time = 0;
-            m_loadingScene = false;
-        }
-    }
+	if (m_loadingScene)
+	{
+		// the scene loads in chuncks, that way we can show a progress bar
+		static int loadingStage = 0;
+		loadingStage = m_node->LoadScene(m_pGltfLoader, loadingStage);
+		if (loadingStage == 0)
+		{
+			m_time = 0;
+			m_loadingScene = false;
+		}
+	}
 #ifdef FFX_CACAO_ENABLE_PROFILING
-    else if (m_pGltfLoader && m_isBenchmarking)
-    {
-        // benchmarking takes control of the time, and exits the app when the animation is done
+	else if (m_pGltfLoader && m_isBenchmarking)
+	{
+		// benchmarking takes control of the time, and exits the app when the animation is done
 
 		if (m_benchmarkWarmUpFramesToRun)
 		{
@@ -613,8 +597,8 @@ void FfxCacaoSample::OnRender()
 				exit(0);
 			}
 
-			FfxCacaoDetailedTiming timings = {};
-			m_Node->GetCacaoTimingValues(&m_state, &timings);
+			FFX_CACAO_DetailedTiming timings = {};
+			m_node->GetCacaoTimingValues(&m_state, &timings);
 
 			if (timings.numTimestamps)
 			{
@@ -633,35 +617,35 @@ void FfxCacaoSample::OnRender()
 				m_time = BenchmarkLoop(timestamps, &m_state.camera, (const std::string**)&pFilename);
 			}
 		}
-    }
+	}
 #endif
-    else
-    {
-        // Build the UI. Note that the rendering of the UI happens later.
-        BuildUI();
+	else
+	{
+		// Build the UI. Note that the rendering of the UI happens later.
+		BuildUI();
 
 		if (m_bPlay)
 		{
 			m_time += (float)deltaTime / 1000.0f;
 		}
-    }
+	}
 
 
-    // Animate and transform the scene
-    //
-    if (m_pGltfLoader)
-    {
-        m_pGltfLoader->SetAnimationTime(0, m_time);
-        m_pGltfLoader->TransformScene(0, XMMatrixIdentity());
-    }
+	// Animate and transform the scene
+	//
+	if (m_pGltfLoader)
+	{
+		m_pGltfLoader->SetAnimationTime(0, m_time);
+		m_pGltfLoader->TransformScene(0, XMMatrixIdentity());
+	}
 
-    m_state.time = m_time;
+	m_state.time = m_time;
 
-    // Do Render frame using AFR 
-    //
-    m_Node->OnRender(&m_state, &m_swapChain);
+	// Do Render frame using AFR
+	//
+	m_node->OnRender(&m_state, &m_swapChain);
 
-    m_swapChain.Present();
+	m_swapChain.Present();
 }
 
 
@@ -671,13 +655,13 @@ void FfxCacaoSample::OnRender()
 //
 //--------------------------------------------------------------------------------------
 int WINAPI WinMain(HINSTANCE hInstance,
-    HINSTANCE hPrevInstance,
-    LPSTR lpCmdLine,
-    int nCmdShow)
+	HINSTANCE hPrevInstance,
+	LPSTR lpCmdLine,
+	int nCmdShow)
 {
-    LPCSTR Name = "FFX CACAO Vulkan Sample v1.0";
+	LPCSTR Name = "FFX CACAO Vulkan Sample v1.2";
 
-    // create new Vulkan sample
-    return RunFramework(hInstance, lpCmdLine, nCmdShow, new FfxCacaoSample(Name));
+	// create new Vulkan sample
+	return RunFramework(hInstance, lpCmdLine, nCmdShow, new Sample(Name));
 }
 

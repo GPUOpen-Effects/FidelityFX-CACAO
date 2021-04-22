@@ -1,6 +1,6 @@
 // AMD Sample sample code
 //
-// Copyright(c) 2020 Advanced Micro Devices, Inc.All rights reserved.
+// Copyright(c) 2021 Advanced Micro Devices, Inc.All rights reserved.
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files(the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
@@ -20,20 +20,29 @@
 
 #include "ffx_cacao.h"
 
-struct FfxCacaoPreset
+struct Preset
 {
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
 	bool useDownsampledSsao;
-#endif
-	FfxCacaoSettings settings;
+	FFX_CACAO_Settings settings;
 };
 
 
-#ifdef FFX_CACAO_ENABLE_NATIVE_RESOLUTION
-static const char *FFX_CACAO_PRESET_NAMES[] = { "Native - High Quality", "Native - Medium Quality", "Native - Low Quality", "Downsampled - High Quality", "Downsampled - Medium Quality", "Downsampled - Low Quality", "Custom" };
+static const char *FFX_CACAO_PRESET_NAMES[] = {
+	"Native - Adaptive Quality",
+	"Native - High Quality",
+	"Native - Medium Quality",
+	"Native - Low Quality",
+	"Native - Lowest Quality",
+	"Downsampled - Adaptive Quality",
+	"Downsampled - High Quality",
+	"Downsampled - Medium Quality",
+	"Downsampled - Low Quality",
+	"Downsampled - Lowest Quality",
+	"Custom"
+};
 
-static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
-	// Native - High Quality
+static const Preset FFX_CACAO_PRESETS[] = {
+	// Native - Adaptive Quality
 	{
 		/* useDownsampledSsao */ false,
 		{
@@ -45,6 +54,29 @@ static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
 			/* fadeOutFrom                       */ 20.0f,
 			/* fadeOutTo                         */ 40.0f,
 			/* qualityLevel                      */ FFX_CACAO_QUALITY_HIGHEST,
+			/* adaptiveQualityLimit              */ 0.75f,
+			/* blurPassCount                     */ 2,
+			/* sharpness                         */ 0.98f,
+			/* temporalSupersamplingAngleOffset  */ 0.0f,
+			/* temporalSupersamplingRadiusOffset */ 0.0f,
+			/* detailShadowStrength              */ 0.5f,
+			/* generateNormals                   */ FFX_CACAO_FALSE,
+			/* bilateralSigmaSquared             */ 5.0f,
+			/* bilateralSimilarityDistanceSigma  */ 0.1f,
+		}
+	},
+	// Native - High Quality
+	{
+		/* useDownsampledSsao */ false,
+		{
+			/* radius                            */ 1.2f,
+			/* shadowMultiplier                  */ 1.0f,
+			/* shadowPower                       */ 1.50f,
+			/* shadowClamp                       */ 0.98f,
+			/* horizonAngleThreshold             */ 0.06f,
+			/* fadeOutFrom                       */ 20.0f,
+			/* fadeOutTo                         */ 40.0f,
+			/* qualityLevel                      */ FFX_CACAO_QUALITY_HIGH,
 			/* adaptiveQualityLimit              */ 0.75f,
 			/* blurPassCount                     */ 2,
 			/* sharpness                         */ 0.98f,
@@ -90,9 +122,55 @@ static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
 			/* horizonAngleThreshold             */ 0.06f,
 			/* fadeOutFrom                       */ 20.0f,
 			/* fadeOutTo                         */ 40.0f,
+			/* qualityLevel                      */ FFX_CACAO_QUALITY_LOW,
+			/* adaptiveQualityLimit              */ 0.75f,
+			/* blurPassCount                     */ 6,
+			/* sharpness                         */ 0.98f,
+			/* temporalSupersamplingAngleOffset  */ 0.0f,
+			/* temporalSupersamplingRadiusOffset */ 0.0f,
+			/* detailShadowStrength              */ 0.5f,
+			/* generateNormals                   */ FFX_CACAO_FALSE,
+			/* bilateralSigmaSquared             */ 5.0f,
+			/* bilateralSimilarityDistanceSigma  */ 0.1f,
+		}
+	},
+	// Native - Lowest Quality
+	{
+		/* useDownsampledSsao */ false,
+		{
+			/* radius                            */ 1.2f,
+			/* shadowMultiplier                  */ 1.0f,
+			/* shadowPower                       */ 1.50f,
+			/* shadowClamp                       */ 0.98f,
+			/* horizonAngleThreshold             */ 0.06f,
+			/* fadeOutFrom                       */ 20.0f,
+			/* fadeOutTo                         */ 40.0f,
 			/* qualityLevel                      */ FFX_CACAO_QUALITY_LOWEST,
 			/* adaptiveQualityLimit              */ 0.75f,
-			/* blurPassCount                     */ 4,
+			/* blurPassCount                     */ 6,
+			/* sharpness                         */ 0.98f,
+			/* temporalSupersamplingAngleOffset  */ 0.0f,
+			/* temporalSupersamplingRadiusOffset */ 0.0f,
+			/* detailShadowStrength              */ 0.5f,
+			/* generateNormals                   */ FFX_CACAO_FALSE,
+			/* bilateralSigmaSquared             */ 5.0f,
+			/* bilateralSimilarityDistanceSigma  */ 0.1f,
+		}
+	},
+	// Downsampled - Highest Quality
+	{
+		/* useDownsampledSsao */ true,
+		{
+			/* radius                            */ 1.2f,
+			/* shadowMultiplier                  */ 1.0f,
+			/* shadowPower                       */ 1.50f,
+			/* shadowClamp                       */ 0.98f,
+			/* horizonAngleThreshold             */ 0.06f,
+			/* fadeOutFrom                       */ 20.0f,
+			/* fadeOutTo                         */ 40.0f,
+			/* qualityLevel                      */ FFX_CACAO_QUALITY_HIGHEST,
+			/* adaptiveQualityLimit              */ 0.75f,
+			/* blurPassCount                     */ 2,
 			/* sharpness                         */ 0.98f,
 			/* temporalSupersamplingAngleOffset  */ 0.0f,
 			/* temporalSupersamplingRadiusOffset */ 0.0f,
@@ -113,7 +191,7 @@ static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
 			/* horizonAngleThreshold             */ 0.06f,
 			/* fadeOutFrom                       */ 20.0f,
 			/* fadeOutTo                         */ 40.0f,
-			/* qualityLevel                      */ FFX_CACAO_QUALITY_HIGHEST,
+			/* qualityLevel                      */ FFX_CACAO_QUALITY_HIGH,
 			/* adaptiveQualityLimit              */ 0.75f,
 			/* blurPassCount                     */ 2,
 			/* sharpness                         */ 0.98f,
@@ -159,7 +237,7 @@ static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
 			/* horizonAngleThreshold             */ 0.06f,
 			/* fadeOutFrom                       */ 20.0f,
 			/* fadeOutTo                         */ 40.0f,
-			/* qualityLevel                      */ FFX_CACAO_QUALITY_LOWEST,
+			/* qualityLevel                      */ FFX_CACAO_QUALITY_LOW,
 			/* adaptiveQualityLimit              */ 0.75f,
 			/* blurPassCount                     */ 6,
 			/* sharpness                         */ 0.98f,
@@ -170,58 +248,10 @@ static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
 			/* bilateralSigmaSquared             */ 8.0f,
 			/* bilateralSimilarityDistanceSigma  */ 0.8f,
 		}
-	}
-};
-#else
-static const char *FFX_CACAO_PRESET_NAMES[] = { "High Quality", "Medium Quality", "Low Quality", "Custom" };
-
-static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
-	// High Quality
-	{
-		{
-			/* radius                            */ 1.2f,
-			/* shadowMultiplier                  */ 1.0f,
-			/* shadowPower                       */ 1.50f,
-			/* shadowClamp                       */ 0.98f,
-			/* horizonAngleThreshold             */ 0.06f,
-			/* fadeOutFrom                       */ 20.0f,
-			/* fadeOutTo                         */ 40.0f,
-			/* qualityLevel                      */ FFX_CACAO_QUALITY_HIGHEST,
-			/* adaptiveQualityLimit              */ 0.75f,
-			/* blurPassCount                     */ 2,
-			/* sharpness                         */ 0.98f,
-			/* temporalSupersamplingAngleOffset  */ 0.0f,
-			/* temporalSupersamplingRadiusOffset */ 0.0f,
-			/* detailShadowStrength              */ 0.5f,
-			/* generateNormals                   */ FFX_CACAO_FALSE,
-			/* bilateralSigmaSquared             */ 5.0f,
-			/* bilateralSimilarityDistanceSigma  */ 0.1f,
-		}
 	},
-	// Medium Quality
+	// Downsampled - Lowest Quality
 	{
-		{
-			/* radius                            */ 1.2f,
-			/* shadowMultiplier                  */ 1.0f,
-			/* shadowPower                       */ 1.50f,
-			/* shadowClamp                       */ 0.98f,
-			/* horizonAngleThreshold             */ 0.06f,
-			/* fadeOutFrom                       */ 20.0f,
-			/* fadeOutTo                         */ 40.0f,
-			/* qualityLevel                      */ FFX_CACAO_QUALITY_MEDIUM,
-			/* adaptiveQualityLimit              */ 0.75f,
-			/* blurPassCount                     */ 3,
-			/* sharpness                         */ 0.98f,
-			/* temporalSupersamplingAngleOffset  */ 0.0f,
-			/* temporalSupersamplingRadiusOffset */ 0.0f,
-			/* detailShadowStrength              */ 0.5f,
-			/* generateNormals                   */ FFX_CACAO_FALSE,
-			/* bilateralSigmaSquared             */ 5.0f,
-			/* bilateralSimilarityDistanceSigma  */ 0.2f,
-		}
-	},
-	// Low Quality
-	{
+		/* useDownsampledSsao */ true,
 		{
 			/* radius                            */ 1.2f,
 			/* shadowMultiplier                  */ 1.0f,
@@ -243,4 +273,3 @@ static const FfxCacaoPreset FFX_CACAO_PRESETS[] = {
 		}
 	}
 };
-#endif

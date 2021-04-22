@@ -4,14 +4,16 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../common.cmake)
 add_compile_options(/MP)
 
 set(sources
-    FFX_CACAO_Sample.cpp
-    FFX_CACAO_Sample.h
+    Sample.cpp
+    Sample.h
     SampleRenderer.cpp
     SampleRenderer.h
     ../../../ffx-cacao/src/ffx_cacao_defines.h
     ../../../ffx-cacao/src/ffx_cacao.cpp
     ../../../ffx-cacao/inc/ffx_cacao.h
-    ../Common/FFX_CACAO_Common.h
+    ../../../ffx-cacao/src/ffx_cacao_impl.cpp
+    ../../../ffx-cacao/inc/ffx_cacao_impl.h
+    ../Common/Common.h
     stdafx.cpp
     stdafx.h)
 
@@ -21,7 +23,7 @@ set(shaders
     ${CMAKE_CURRENT_SOURCE_DIR}/Apply_CACAO_Direct.glsl)
 
 set(config
-	${CMAKE_CURRENT_SOURCE_DIR}/../Common/FFX_CACAO_Sample.json
+	${CMAKE_CURRENT_SOURCE_DIR}/../Common/SampleSettings.json
 )
 
 copyCommand("${shaders}" ${CMAKE_HOME_DIRECTORY}/bin/ShaderLibVK)

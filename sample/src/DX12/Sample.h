@@ -1,6 +1,6 @@
 // AMD SampleDX12 sample code
 // 
-// Copyright(c) 2017 Advanced Micro Devices, Inc.All rights reserved.
+// Copyright(c) 2021 Advanced Micro Devices, Inc.All rights reserved.
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files(the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
@@ -20,51 +20,49 @@
 
 #include "SampleRenderer.h"
 
-#include "ffx_cacao.h"
-
-class FfxCacaoSample : public FrameworkWindows
+class Sample : public FrameworkWindows
 {
 public:
-    FfxCacaoSample(LPCSTR name);
-    void OnCreate(HWND hWnd);
-    void OnDestroy();
+	Sample(LPCSTR name);
+	void OnCreate(HWND hWnd);
+	void OnDestroy();
 	void BuildUI();
 	void OnParseCommandLine(LPSTR lpCmdLine, uint32_t* pWidth, uint32_t* pHeight, bool *pbFullScreen);
 	void OnRender();
-    bool OnEvent(MSG msg);
+	bool OnEvent(MSG msg);
 	void OnResize(uint32_t width, uint32_t height) { OnResize(width, height, false); }
-    void OnResize(uint32_t Width, uint32_t Height, bool force);
-    void SetFullScreen(bool fullscreen);
-    
+	void OnResize(uint32_t Width, uint32_t Height, bool force);
+	void SetFullScreen(bool fullscreen);
+
 private:
-	HWND                  m_hWnd;
+	HWND                        m_hWnd;
 
-    Device                m_device;
-    SwapChain             m_swapChain;
+	Device                      m_device;
+	SwapChain                   m_swapChain;
 
-    GLTFCommon           *m_pGltfLoader = NULL;
+	GLTFCommon                 *m_pGltfLoader = NULL;
 
-    SampleRenderer       *m_Node = NULL;
-    SampleRenderer::State m_state;
+	SampleRenderer             *m_node = NULL;
+	SampleRenderer::State       m_state;
 
-	int                   m_loadingStage = 0;
-	bool                  m_requiresLoad = true;
-	int                   m_preset;
+	int                         m_loadingStage = 0;
+	bool                        m_requiresLoad = true;
+	int                         m_preset;
 
-    float                 m_distance;
-    float                 m_roll;
-    float                 m_pitch;
+	float                       m_distance;
+	float                       m_roll;
+	float                       m_pitch;
 
-    float                 m_time;             // WallClock in seconds.
-    double                m_deltaTime;        // The elapsed time in milliseconds since the previous frame.
-    double                m_lastFrameTime;
+	float                       m_time;             // WallClock in seconds.
+	double                      m_deltaTime;        // The elapsed time in milliseconds since the previous frame.
+	double                      m_lastFrameTime;
 
-	bool                  m_isCapturing = false;
-	bool                  m_vsyncEnabled = false;
-	int                   m_cameraControlSelected = 0;
-    bool                  m_bPlay;
-	bool                  m_displayGUI;
-	bool                  m_fullscreen;
+	bool                        m_isCapturing = false;
+	bool                        m_vsyncEnabled = false;
+	int                         m_cameraControlSelected = 0;
+	bool                        m_bPlay;
+	bool                        m_displayGUI;
+	bool                        m_fullscreen;
 
 	// json config file
 	json                        m_jsonConfigFile;
@@ -77,10 +75,10 @@ private:
 	int                         m_presetIndex = 0;
 
 #ifdef FFX_CACAO_ENABLE_PROFILING
-	char     m_benchmarkFilename[1024];
-	bool     m_isBenchmarking;
-	uint32_t m_benchmarkScreenWidth;
-	uint32_t m_benchmarkScreenHeight;
-	uint32_t m_benchmarkWarmUpFramesToRun;
+	char                        m_benchmarkFilename[1024];
+	bool                        m_isBenchmarking;
+	uint32_t                    m_benchmarkScreenWidth;
+	uint32_t                    m_benchmarkScreenHeight;
+	uint32_t                    m_benchmarkWarmUpFramesToRun;
 #endif
 };

@@ -4,7 +4,15 @@ The **FidelityFX CACAO** library implements screen space ambient occlusion for u
 
 # Project Integration
 
-FidelityFX CACAO supports three compile time options. These are:
+FidelityFX CACAO comes with two main header files, `ffx-cacao/inc/ffx_cacao.h` and `ffx-cacao/inc/ffx_cacao_impl.h`. The file `ffx-cacao/inc/ffx_cacao.h` contains reusable C++ functions and struct definitions for integration of FidelityFX CACAO into custom engines. The functions declared in this header file are defined in `ffx-cacao/src/ffx_cacao.cpp`. The header file `ffx-cacao/inc/ffx_cacao_impl.h` is for use in quick integration of FidelityFX CACAO into DX12 and Vulkan engines. The functions declared in this file are defined in `ffx-cacao/src/ffx_cacao_impl.cpp`, which serves as a reference implementation of FidelityFX CACAO.
+
+# Reusable Functions and Structs
+
+The reusable functions and structs provided in `ffx-cacao/src/ffx_cacao.h` are documented via doxygen comments in the header file itself. The functions and structs are used to initialise the constant buffers used by FidelityFX CACAO from a user friendly settings struct `FFX_CACAO_Settings`.
+
+# Reference Implementation
+
+The reference implementation of FidelityFX CACAO supports three compile time options. These are:
 
 ```C++
 FFX_CACAO_ENABLE_D3D12
@@ -12,11 +20,11 @@ FFX_CACAO_ENABLE_VK
 FFX_CACAO_ENABLE_PROFILING
 ```
 
-For use with D3D12 or Vulkan, the symbols `FFX_CACAO_ENABLE_D3D12` or `FFX_CACAO_ENABLE_VK` must be defined. If you wish to get detailed timings from FFX CACAO the symbol `FFX_CACAO_ENABLE_PROFILING` must be defined. These symbols can either be defined in the header `ffx-cacao/inc/ffx_cacao.h` itself by uncommenting the respective definitions, or they can defined in compiler flags. The provided sample of FFX CACAO defines these symbols using compiler flags.
+For use with D3D12 or Vulkan, the symbols `FFX_CACAO_ENABLE_D3D12` or `FFX_CACAO_ENABLE_VK` must be defined. If you wish to get detailed timings from FFX CACAO the symbol `FFX_CACAO_ENABLE_PROFILING` must be defined. These symbols can either be defined in the header `ffx-cacao/inc/ffx_cacao_impl.h` itself by uncommenting the respective definitions, or they can defined in compiler flags. The provided sample of FFX CACAO defines these symbols using compiler flags.
 
 # Context Initialisation and Shutdown
 
-First the FFX CACAO header must be included. This can be found at `ffx-cacao/inc/ffx_cacao.h`. Then a context must be created. This is usually done only once per device. To create a context you must first query for the size of a context, allocate space for a context, then inintialise the context.
+First the FFX CACAO header must be included. This can be found at `ffx-cacao/inc/ffx_cacao_impl.h`. Then a context must be created. This is usually done only once per device. To create a context you must first query for the size of a context, allocate space for a context, then inintialise the context.
 
 
 For D3D12 the initialisation and shutdown processes are as follows:
